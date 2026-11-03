@@ -1,0 +1,17 @@
+# Carpetas generadas por MCUXpresso
+Debug/
+Release/
+
+# Archivos compilados
+*.o
+*.elf
+*.axf
+*.map
+*.bin
+
+# Metadatos del workspace
+.metadata/
+
+# Archivos temporales
+*.log
+*.tmp
