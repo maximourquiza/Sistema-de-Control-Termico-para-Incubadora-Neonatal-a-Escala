@@ -1,25 +1,23 @@
 # Sistema de Control de Temperatura para una Incubadora Neonatal a Escala
 
 > **Asignatura:** Electrónica Digital III — Universidad Nacional de Córdoba  
-> **Integrantes:** 
-> **Profesor:** [Completar nombre]  
+> **Integrantes:** Urquiza Maximo, Ryan Andres
+> **Profesor:** Marcos Blasco
 > **Estado del proyecto:** En desarrollo
 
 ---
 
 ## 1. Descripción General del Proyecto
 
-Se desarrollará un **prototipo a escala de una incubadora neonatal con control automático de temperatura**, utilizando un microcontrolador **LPC1769**. El sistema medirá la temperatura interna mediante un sensor **LM35** y la comparará con una **temperatura de referencia configurada desde una aplicación web en una PC**.
+Se desarrollará un **prototipo a escala de una incubadora neonatal con control automático de temperatura**, utilizando un microcontrolador **LPC1769**. El sistema medirá la temperatura interna mediante un sensor **TMP36** y la comparará con una **temperatura de referencia configurada desde una aplicación web en una PC**.
 
 A partir del error entre la temperatura medida y la de referencia, el microcontrolador regulará la potencia de una **resistencia calefactora de bajo voltaje** y la velocidad de un **ventilador (cooler)** mediante señales **PWM**. Además, incorporará una **alarma sonora generada por el DAC** y reproducida mediante una bocina de baja potencia cuando la temperatura supere los límites definidos para la demostración. La comunicación entre la placa y la interfaz será **bidireccional por UART**.
 
-> **Importante:** Este proyecto es una **maqueta académica de laboratorio**. No está diseñado, validado ni autorizado para alojar neonatos o utilizarse como equipo médico. Los umbrales incluidos en este README son **parámetros de prueba del prototipo**, no límites clínicos de seguridad.
-
-### Alcances del Proyecto (¿Qué hace y qué NO hace el sistema?)
+### Alcances del Proyecto 
 
 **El sistema SÍ contempla:**
 
-- Medir la temperatura del interior de la maqueta con un LM35 y adquirir su señal mediante el ADC del LPC1769.
+- Medir la temperatura del interior de la maqueta con un TMP36 y adquirir su señal mediante el ADC del LPC1769.
 - Permitir configurar la temperatura de referencia desde una **webapp** ejecutada en la PC.
 - Transmitir periódicamente la temperatura medida y el estado de los actuadores desde la placa hacia la PC por UART.
 - Enviar órdenes y una consigna de temperatura desde la PC hacia la placa por la misma conexión UART.
@@ -53,7 +51,7 @@ A partir del error entre la temperatura medida y la de referencia, el microcontr
 | Componente | Función dentro del sistema |
 |---|---|
 | **LPC1769** | Adquisición, procesamiento, control y comunicaciones. |
-| **LM35** | Medición analógica de temperatura (sensibilidad nominal de 10 mV/°C). |
+| **TMP36** | Medición analógica de temperatura (sensibilidad nominal de 10 mV/°C). |
 | **Resistencia calefactora de bajo voltaje** | Actuador encargado de aumentar la temperatura de la maqueta. |
 | **Cooler PWM** | Circulación de aire y, si existe ventilación/intercambio térmico adecuado, asistencia al enfriamiento. |
 | **Transistores MOSFET** | Etapas de conmutación/potencia para las cargas, según el circuito definitivo. |
@@ -65,7 +63,7 @@ A partir del error entre la temperatura medida y la de referencia, el microcontr
 
 ```mermaid
 flowchart LR
-    LM35[Sensor LM35] --> ADC[ADC del LPC1769]
+    TMP36[Sensor TMP36] --> ADC[ADC del LPC1769]
     ADC --> MCU[Control y supervisión LPC1769]
     WEB[Webapp en PC] <-->|UART a través de USB-serie| UART[UART]
     UART <--> MCU
@@ -84,7 +82,7 @@ flowchart LR
 
 ### Descripción del Circuito y Consideraciones de Diseño
 
-1. **Adquisición:** El LM35 entrega una tensión proporcional a la temperatura, que se acondicionará, si es necesario, para garantizar que la entrada analógica del LPC1769 permanezca dentro de su rango permitido. El ADC convertirá esa tensión en un valor digital que se expresará en °C.
+1. **Adquisición:** El TMP36 entrega una tensión proporcional a la temperatura, que se acondicionará, si es necesario, para garantizar que la entrada analógica del LPC1769 permanezca dentro de su rango permitido. El ADC convertirá esa tensión en un valor digital que se expresará en °C.
 2. **Calefacción:** Una salida PWM controlará un **MOSFET de canal N de nivel lógico**, dimensionado para conducir adecuadamente con el nivel de control disponible (3,3 V), que regulará la potencia media entregada a la resistencia de bajo voltaje.
 3. **Ventilación:** El cooler se regulará mediante PWM. **La conexión concreta dependerá del ventilador seleccionado:** si es de dos cables podrá controlarse mediante una etapa de potencia PWM apropiada; si es un ventilador de cuatro cables, se respetará su entrada PWM de control y alimentación correspondiente.
 4. **Alarma:** El DAC generará una señal de audio que se aplicará a la bocina **a través de un driver o amplificador**, dado que la salida del DAC no debe alimentar directamente la carga de un parlante.
@@ -96,7 +94,7 @@ flowchart LR
 
 El firmware implementará un **lazo de control en el LPC1769**, independiente de la actualización gráfica de la webapp:
 
-1. Adquirir periódicamente la salida del LM35 a través del ADC.
+1. Adquirir periódicamente la salida del TMP36 a través del ADC.
 2. Calcular la temperatura medida y verificar que la lectura sea válida.
 3. Recibir y validar los comandos y la consigna enviados por UART.
 4. Calcular el error de temperatura: `e = T_ref - T_medida`.
@@ -117,7 +115,7 @@ El firmware implementará un **lazo de control en el LPC1769**, independiente de
 | Parámetro | Especificación prevista |
 |---|---|
 | Lógica del LPC1769 | 3,3 V según las especificaciones de la placa y sus periféricos. |
-| Sensor LM35 | Alimentación a definir según el modelo y el diseño de acondicionamiento. |
+| Sensor TMP36 | Alimentación a definir según el modelo y el diseño de acondicionamiento. |
 | Resistencia calefactora | Baja tensión; valor nominal de tensión, potencia y corriente: **pendiente de selección**. |
 | Cooler | Tensión y corriente nominales: **pendientes de confirmar**. |
 | Bocina y amplificador | Baja potencia; tensión y consumo: **pendientes de definir**. |
@@ -131,7 +129,7 @@ El firmware implementará un **lazo de control en el LPC1769**, independiente de
 - **Lenguaje:** C.
 - **Arquitectura prevista:** bare-metal con tareas periódicas e interrupciones, según la implementación final.
 - **Periféricos del microcontrolador:**
-  - **ADC:** digitalización de la señal del LM35.
+  - **ADC:** digitalización de la señal del TMP36.
   - **UART:** enlace serie bidireccional con la PC.
   - **PWM / temporizadores:** control de la resistencia y del cooler.
   - **DAC:** generación de la señal de alarma.
@@ -157,7 +155,7 @@ La webapp tendrá, como mínimo, los siguientes elementos:
 El desarrollo se dividirá en etapas para comprobar cada subsistema antes de integrarlo:
 
 1. **Etapa 1 — Validación inicial:** configurar el reloj del LPC1769, GPIO, temporizadores y entorno de depuración; verificar el funcionamiento básico de la placa.
-2. **Etapa 2 — Sensor y adquisición:** conectar el LM35, validar niveles de tensión, calibrar la lectura del ADC y contrastar mediciones con un termómetro de referencia.
+2. **Etapa 2 — Sensor y adquisición:** conectar el TMP36, validar niveles de tensión, calibrar la lectura del ADC y contrastar mediciones con un termómetro de referencia.
 3. **Etapa 3 — Comunicación e interfaz:** establecer UART bidireccional, implementar el protocolo documentado en la sección 7 y conectar la webapp.
 4. **Etapa 4 — Actuadores:** implementar y medir las salidas PWM, integrar los MOSFET y verificar la activación del calefactor y el cooler de forma independiente.
 5. **Etapa 5 — Alarmas y control:** generar la señal del DAC, implementar las condiciones de alarma y cerrar el lazo térmico con una estrategia de control ajustable.
@@ -182,7 +180,7 @@ Los siguientes valores son **objetivos iniciales propuestos para la maqueta**; d
 | CA-07 | Regulación térmica | Tras alcanzar la referencia, mantener `|T_medida − T_ref| ≤ 0,5 °C` durante **5 min** en condiciones de ensayo constantes. | Graficar temperatura, referencia y PWM versus tiempo. |
 | CA-08 | Respuesta ante perturbación | Ante una perturbación térmica moderada y reproducible, recuperar la banda de **± 0,5 °C** dentro de **5 min** (objetivo sujeto a ajuste experimental). | Registrar la curva de recuperación y describir la perturbación aplicada. |
 | CA-09 | Alarma por temperatura | Activar aviso visual y acústico cuando `T ≤ 32,0 °C` o `T ≥ 38,0 °C`, valores **solo de prueba**. | Forzar o simular ambas condiciones; verificar DAC, bocina y webapp. |
-| CA-10 | Falla de sensor | Una lectura inválida o fuera del rango eléctrico permitido provoca **calefactor apagado** y reporte de falla. | Desconectar o simular falla del LM35 en un ensayo controlado. |
+| CA-10 | Falla de sensor | Una lectura inválida o fuera del rango eléctrico permitido provoca **calefactor apagado** y reporte de falla. | Desconectar o simular falla del TMP36 en un ensayo controlado. |
 | CA-11 | Comandos de operación | `START`, `STOP` y `STATUS` responden correctamente; `STOP` deja al menos el calefactor en **0 %**. | Ejecutar la secuencia desde la PC y registrar las respuestas. |
 | CA-12 | Integración de interfaz | La webapp muestra temperatura, consigna, estados, PWM y alarmas sin inconsistencias visibles respecto de las tramas recibidas. | Capturas de pantalla y registro serie sincronizados. |
 
@@ -306,7 +304,7 @@ MCU -> PC:      ACK,STOP
 | **Comunicación con PC bidireccional para controlar el microcontrolador** | UART: la PC envía consigna y comandos; el LPC1769 responde y transmite datos del proceso. | CA-02, CA-03, CA-04 y CA-11. |
 | **Interfaz de usuario** | Webapp con visualización de temperatura, consigna, estados de funcionamiento, PWM y alarmas. | CA-12. |
 | **Protocolo de comunicación documentado en el README** | Sección 7: configuración del enlace, formato de tramas, campos, comandos, respuestas y ejemplos. | CA-02, CA-03 y CA-04. |
-| **Un sensor de los vistos en clase** | LM35, sensor analógico de temperatura conectado a una entrada ADC del LPC1769. | CA-01 y CA-10. |
+| **Un sensor de los vistos en clase** | TMP36, sensor analógico de temperatura conectado a una entrada ADC del LPC1769. | CA-01 y CA-10. |
 | **Un actuador de los vistos en clase** | Resistencia calefactora y cooler controlados por PWM a través de sus respectivas etapas de potencia/control; además, bocina activada desde el DAC. | CA-05, CA-06 y CA-09. |
 | **Definir criterios de aceptación completos según el TP individual** | Sección 5: criterios cuantificables de medición, comunicaciones, interfaz, PWM, regulación, alarmas y fallas. | CA-01 a CA-12 y evidencias experimentales. |
 
