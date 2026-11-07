@@ -25,20 +25,12 @@ A partir del error entre la temperatura medida y la de referencia, el microcontr
 - Generar una señal de alarma mediante el DAC cuando se detecte una temperatura fuera de los límites de prueba.
 - Visualizar la medición, la consigna, el estado de los actuadores y las alarmas en la interfaz.
 
-**El sistema NO contempla (fuera de alcance):**
+**El sistema NO contempla:**
 
 - Uso clínico, certificación sanitaria ni cumplimiento de normas de seguridad de incubadoras reales.
 - Control de humedad, concentración de oxígeno ni otras variables fisiológicas.
 - Monitoreo de signos vitales del paciente.
 - Alimentación autónoma mediante batería, registro persistente de datos o conectividad inalámbrica (salvo futuras ampliaciones).
-
-### Posibles Etapas Siguientes (Líneas Futuras)
-
-- Implementar control PID con ajuste experimental de parámetros.
-- Agregar sensores redundantes, detección de fallas y protecciones independientes del firmware.
-- Incorporar almacenamiento de mediciones, tendencias y un historial de eventos.
-- Desarrollar una PCB y mejorar el diseño mecánico y el aislamiento térmico.
-- Extender el sistema para regular humedad y supervisar el flujo de aire.
 
 ---
 
@@ -84,27 +76,10 @@ flowchart LR
 
 1. **Adquisición:** El TMP36 entrega una tensión proporcional a la temperatura, que se acondicionará, si es necesario, para garantizar que la entrada analógica del LPC1769 permanezca dentro de su rango permitido. El ADC convertirá esa tensión en un valor digital que se expresará en °C.
 2. **Calefacción:** Una salida PWM controlará un **MOSFET de canal N de nivel lógico**, dimensionado para conducir adecuadamente con el nivel de control disponible (3,3 V), que regulará la potencia media entregada a la resistencia de bajo voltaje.
-3. **Ventilación:** El cooler se regulará mediante PWM. **La conexión concreta dependerá del ventilador seleccionado:** si es de dos cables podrá controlarse mediante una etapa de potencia PWM apropiada; si es un ventilador de cuatro cables, se respetará su entrada PWM de control y alimentación correspondiente.
-4. **Alarma:** El DAC generará una señal de audio que se aplicará a la bocina **a través de un driver o amplificador**, dado que la salida del DAC no debe alimentar directamente la carga de un parlante.
-5. **Alimentación y protección:** La etapa de potencia dispondrá de una fuente de bajo voltaje adecuada para las cargas. Se contemplarán masa común, protección de alimentación, disipación de calor y protección contra transitorios de cargas inductivas cuando corresponda. Las tensiones y corrientes finales se documentarán después de elegir los modelos específicos.
-
-> **Consideración térmica:** Un ventilador que solo recircula aire dentro de un recinto cerrado no necesariamente reduce la temperatura. Para usarlo como actuador de enfriamiento, la maqueta deberá prever un intercambio térmico o un diseño de flujo de aire que permita disipar calor.
+3. **Ventilación:** El cooler se regulará mediante PWM. Al ser de dos cables podrá controlarse mediante una etapa de potencia PWM apropiada.
+4. **Alarma:** El DAC generará una señal de audio que se aplicará a la bocina **a través de un amplificador**, dado que la salida del DAC no debe alimentar directamente la carga de un parlante.
 
 ### Arquitectura de Software (Firmware)
-
-El firmware implementará un **lazo de control en el LPC1769**, independiente de la actualización gráfica de la webapp:
-
-1. Adquirir periódicamente la salida del TMP36 a través del ADC.
-2. Calcular la temperatura medida y verificar que la lectura sea válida.
-3. Recibir y validar los comandos y la consigna enviados por UART.
-4. Calcular el error de temperatura: `e = T_ref - T_medida`.
-5. Actualizar los ciclos de trabajo PWM del calefactor y del cooler en función del signo y la magnitud del error, con una **banda muerta** alrededor de la consigna para evitar oscilaciones.
-6. Verificar los umbrales de alarma y generar la señal acústica mediante el DAC cuando corresponda.
-7. Transmitir por UART la medición, la consigna, los ciclos de trabajo y el estado de alarma.
-
-**Estrategia inicial de control:** control proporcional sencillo con zona muerta. Si la temperatura es menor a la referencia, se incrementará el PWM del calefactor; si es mayor, se reducirá la calefacción y se incrementará la actuación del cooler, siempre que el diseño permita extraer calor. Se evitará ordenar calefacción y enfriamiento activos simultáneamente, salvo la ventilación mínima de circulación que se defina para la maqueta. La ley de control y sus ganancias se ajustarán durante las pruebas.
-
-**Estados previstos:** `DETENIDO`, `REGULANDO`, `ALARMA` y `FALLA`. Ante una lectura inválida del sensor o una condición de falla, el calefactor deberá pasar a **PWM = 0 %** y el sistema indicará el problema en la interfaz. La respuesta ante pérdida de comunicación se definirá y verificará antes de la integración final.
 
 ---
 
@@ -127,14 +102,12 @@ El firmware implementará un **lazo de control en el LPC1769**, independiente de
 - **Microcontrolador principal:** NXP LPC1769 (ARM Cortex-M3).
 - **Entorno de desarrollo:** MCUXpresso IDE.
 - **Lenguaje:** C.
-- **Arquitectura prevista:** bare-metal con tareas periódicas e interrupciones, según la implementación final.
 - **Periféricos del microcontrolador:**
   - **ADC:** digitalización de la señal del TMP36.
   - **UART:** enlace serie bidireccional con la PC.
   - **PWM / temporizadores:** control de la resistencia y del cooler.
-  - **DAC:** generación de la señal de alarma.
+  - **DMA y DAC:** generación de la señal de alarma.
   - **Interrupciones y temporización:** adquisición, actualización de salidas y procesamiento de eventos.
-- **DMA:** [Indicar aquí si se incorpora y en qué transferencia, si también es obligatorio para la entrega de Electrónica Digital III].
 
 ### Interfaz de Usuario (Webapp)
 
@@ -166,23 +139,6 @@ El desarrollo se dividirá en etapas para comprobar cada subsistema antes de int
 ## 5. Ensayos, Pruebas y Resultados
 
 ### Criterios de Aceptación del Prototipo
-
-Los siguientes valores son **objetivos iniciales propuestos para la maqueta**; deben revisarse de acuerdo con la potencia del calefactor, las dimensiones del recinto, el comportamiento del cooler y los requisitos específicos de la cátedra. **No representan ensayos ya realizados ni criterios clínicos.**
-
-| ID | Requisito verificable | Criterio de aceptación propuesto | Ensayo / evidencia |
-|---|---|---|---|
-| CA-01 | Adquisición de temperatura | Lecturas estables entre **25 y 40 °C**; error absoluto **≤ 0,5 °C** respecto de un instrumento de referencia, tras calibración. | Comparar en al menos tres puntos del rango; registrar tabla de mediciones. |
-| CA-02 | Actualización de datos | Envío de una trama `DATA` cada **1 s** durante la operación normal. | Registrar marcas de tiempo de al menos 60 tramas. |
-| CA-03 | Comunicación bidireccional | La PC modifica `T_ref` por UART y recibe confirmación `ACK` en **≤ 2 s**. | Enviar al menos cinco consignas válidas desde la webapp. |
-| CA-04 | Validación de comandos | Consignas fuera de **34,0 a 37,0 °C** o tramas mal formadas se rechazan con `ERR`, sin alterar la consigna vigente. | Enviar consignas válidas, fuera de rango y comandos desconocidos. |
-| CA-05 | Control PWM del calefactor | La salida conmuta y presenta ciclos de trabajo controlables entre **0 y 100 %**. | Medir la salida PWM con osciloscopio o analizador lógico. |
-| CA-06 | Control PWM del cooler | La orden de control modifica de manera verificable la velocidad o la señal de mando del ventilador. | Registrar PWM y comportamiento del cooler para varias consignas de actuación. |
-| CA-07 | Regulación térmica | Tras alcanzar la referencia, mantener `|T_medida − T_ref| ≤ 0,5 °C` durante **5 min** en condiciones de ensayo constantes. | Graficar temperatura, referencia y PWM versus tiempo. |
-| CA-08 | Respuesta ante perturbación | Ante una perturbación térmica moderada y reproducible, recuperar la banda de **± 0,5 °C** dentro de **5 min** (objetivo sujeto a ajuste experimental). | Registrar la curva de recuperación y describir la perturbación aplicada. |
-| CA-09 | Alarma por temperatura | Activar aviso visual y acústico cuando `T ≤ 32,0 °C` o `T ≥ 38,0 °C`, valores **solo de prueba**. | Forzar o simular ambas condiciones; verificar DAC, bocina y webapp. |
-| CA-10 | Falla de sensor | Una lectura inválida o fuera del rango eléctrico permitido provoca **calefactor apagado** y reporte de falla. | Desconectar o simular falla del TMP36 en un ensayo controlado. |
-| CA-11 | Comandos de operación | `START`, `STOP` y `STATUS` responden correctamente; `STOP` deja al menos el calefactor en **0 %**. | Ejecutar la secuencia desde la PC y registrar las respuestas. |
-| CA-12 | Integración de interfaz | La webapp muestra temperatura, consigna, estados, PWM y alarmas sin inconsistencias visibles respecto de las tramas recibidas. | Capturas de pantalla y registro serie sincronizados. |
 
 **Parámetros propuestos para el prototipo:**
 
