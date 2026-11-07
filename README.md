@@ -148,19 +148,6 @@ El desarrollo se dividirá en etapas para comprobar cada subsistema antes de int
 - Período de telemetría: **1 segundo**.
 - Banda muerta, ganancia de control, frecuencia de PWM y política de reconexión: **a ajustar/documentar durante el desarrollo**.
 
-### Registro de Pruebas y Resultados
-
-| Ensayo | Resultado medido | Estado | Evidencia |
-|---|---|---|---|
-| Temperatura y ADC | Pendiente | Sin ensayar | [Agregar archivo o captura] |
-| UART bidireccional | Pendiente | Sin ensayar | [Agregar registro serie] |
-| PWM calefactor y ventilador | Pendiente | Sin ensayar | [Agregar medición de instrumental] |
-| Control de temperatura | Pendiente | Sin ensayar | [Agregar gráfico] |
-| DAC y alarma sonora | Pendiente | Sin ensayar | [Agregar evidencia] |
-| Webapp e integración | Pendiente | Sin ensayar | [Agregar captura y foto] |
-
-**Evidencia obligatoria a incorporar:** fotografía del prototipo completo; captura de la webapp; registro de tramas UART; mediciones del ADC y las salidas PWM; gráfico de temperatura vs. tiempo; evidencia de la alarma por DAC.
-
 ---
 
 ## 6. Estructura del Repositorio
@@ -183,86 +170,16 @@ Se excluirán mediante `.gitignore` las carpetas generadas por el entorno de com
 
 ---
 
-## 7. Protocolo de Comunicación UART
-
-El enlace serie será **bidireccional** entre la PC y el LPC1769. La webapp enviará consignas y comandos, mientras que el microcontrolador transmitirá las mediciones, los estados y las alarmas.
-
-### Configuración Inicial Propuesta
-
-| Parámetro | Valor |
-|---|---|
-| Medio físico | UART TTL compatible con la placa, mediante puente USB–UART hacia la PC |
-| Baud rate | **115200 bit/s** |
-| Bits de datos | **8** |
-| Paridad | **Ninguna** |
-| Bits de stop | **1** |
-| Control de flujo | **Ninguno** |
-| Codificación | Texto **ASCII** |
-| Delimitación de trama | Salto de línea `\n` |
-| Separador de campos | Coma `,` |
-| Separador decimal | Punto `.` |
-
-> La configuración UART y el formato aquí descritos son la **propuesta de implementación**. Si se cambia alguno, se debe actualizar esta sección y mantener sincronizados el firmware y la webapp.
-
-### Comandos desde la PC hacia el Microcontrolador
-
-| Trama | Función | Ejemplo |
-|---|---|---|
-| `SET,TREF,<valor>\n` | Establecer temperatura de referencia en °C. | `SET,TREF,36.5\n` |
-| `CMD,START\n` | Iniciar la regulación. | `CMD,START\n` |
-| `CMD,STOP\n` | Detener la regulación y apagar el calefactor. | `CMD,STOP\n` |
-| `CMD,STATUS\n` | Solicitar el estado actual. | `CMD,STATUS\n` |
-
-### Mensajes desde el Microcontrolador hacia la PC
-
-| Trama | Función | Ejemplo |
-|---|---|---|
-| `DATA,<T>,<TREF>,<H>,<F>,<A>\n` | Telemetría periódica. | `DATA,36.2,36.5,35,20,0\n` |
-| `ACK,TREF,<valor>\n` | Confirma una consigna válida. | `ACK,TREF,36.5\n` |
-| `ACK,<comando>\n` | Confirma la ejecución de un comando. | `ACK,START\n` |
-| `ALARM,<tipo>,<T>\n` | Notifica alarma de temperatura o falla. | `ALARM,HIGH,38.2\n` |
-| `ERR,<codigo>\n` | Rechaza una trama o un parámetro inválido. | `ERR,OUT_OF_RANGE\n` |
-
-**Campos de `DATA`:**
-
-- `T`: temperatura medida en °C.
-- `TREF`: temperatura de referencia en °C.
-- `H`: ciclo de trabajo del calefactor, en porcentaje (`0–100`).
-- `F`: ciclo de trabajo del ventilador, en porcentaje (`0–100`).
-- `A`: indicador de alarma (`0` = sin alarma; `1` = alarma activa).
-
-**Tipos de alarma propuestos:** `LOW`, `HIGH`, `SENSOR_FAIL`.  
-**Códigos de error propuestos:** `BAD_FORMAT`, `UNKNOWN_CMD`, `OUT_OF_RANGE`.
-
-### Ejemplo de Intercambio
-
-```text
-PC  -> LPC1769: SET,TREF,36.5
-MCU -> PC:      ACK,TREF,36.5
-PC  -> LPC1769: CMD,START
-MCU -> PC:      ACK,START
-MCU -> PC:      DATA,35.8,36.5,70,20,0
-MCU -> PC:      DATA,36.2,36.5,35,20,0
-MCU -> PC:      DATA,38.2,36.5,0,100,1
-MCU -> PC:      ALARM,HIGH,38.2
-PC  -> LPC1769: CMD,STOP
-MCU -> PC:      ACK,STOP
-```
-
-**Validaciones de protocolo:** se rechazarán valores no numéricos, referencias fuera de rango y comandos desconocidos. Una nueva consigna solo se aplicará luego de validarse. Las tramas deberán procesarse sin bloquear el lazo de control. El tratamiento de tramas incompletas y cortes de conexión se documentará al completar la implementación.
-
----
-
 ## 8. Cumplimiento de los Requisitos del Trabajo Práctico
 
-| Requisito solicitado | Implementación prevista | Verificación |
+| Requisito solicitado | Implementación prevista |
 |---|---|---|
-| **Comunicación con PC bidireccional para controlar el microcontrolador** | UART: la PC envía consigna y comandos; el LPC1769 responde y transmite datos del proceso. | CA-02, CA-03, CA-04 y CA-11. |
-| **Interfaz de usuario** | Webapp con visualización de temperatura, consigna, estados de funcionamiento, PWM y alarmas. | CA-12. |
-| **Protocolo de comunicación documentado en el README** | Sección 7: configuración del enlace, formato de tramas, campos, comandos, respuestas y ejemplos. | CA-02, CA-03 y CA-04. |
-| **Un sensor de los vistos en clase** | TMP36, sensor analógico de temperatura conectado a una entrada ADC del LPC1769. | CA-01 y CA-10. |
-| **Un actuador de los vistos en clase** | Resistencia calefactora y cooler controlados por PWM a través de sus respectivas etapas de potencia/control; además, bocina activada desde el DAC. | CA-05, CA-06 y CA-09. |
-| **Definir criterios de aceptación completos según el TP individual** | Sección 5: criterios cuantificables de medición, comunicaciones, interfaz, PWM, regulación, alarmas y fallas. | CA-01 a CA-12 y evidencias experimentales. |
+| **Comunicación con PC bidireccional para controlar el microcontrolador** | UART: la PC envía consigna y comandos; el LPC1769 responde y transmite datos del proceso. |
+| **Interfaz de usuario** | Webapp con visualización de temperatura, consigna, estados de funcionamiento, PWM y alarmas. |
+| **Protocolo de comunicación documentado en el README** | Sección 7: configuración del enlace, formato de tramas, campos, comandos, respuestas y ejemplos. |
+| **Un sensor de los vistos en clase** | TMP36, sensor analógico de temperatura conectado a una entrada ADC del LPC1769. |
+| **Un actuador de los vistos en clase** | Resistencia calefactora y cooler controlados por PWM a través de sus respectivas etapas de potencia/control; además, bocina activada desde el DAC. |
+| **Definir criterios de aceptación completos según el TP individual** | Sección 5: criterios cuantificables de medición, comunicaciones, interfaz, PWM, regulación, alarmas y fallas. |
 
 **Estado de cumplimiento:** los requisitos se encuentran **cubiertos en el diseño propuesto**. Su cumplimiento efectivo se confirmará únicamente después de implementar, ensayar y registrar la evidencia correspondiente.
 
