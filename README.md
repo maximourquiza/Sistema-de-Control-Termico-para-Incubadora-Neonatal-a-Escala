@@ -173,7 +173,7 @@ Se excluirán mediante `.gitignore` las carpetas generadas por el entorno de com
 ## 8. Cumplimiento de los Requisitos del Trabajo Práctico
 
 | Requisito solicitado | Implementación prevista |
-|---|---|---|
+|---|---|
 | **Comunicación con PC bidireccional para controlar el microcontrolador** | UART: la PC envía consigna y comandos; el LPC1769 responde y transmite datos del proceso. |
 | **Interfaz de usuario** | Webapp con visualización de temperatura, consigna, estados de funcionamiento, PWM y alarmas. |
 | **Protocolo de comunicación documentado en el README** | Sección 7: configuración del enlace, formato de tramas, campos, comandos, respuestas y ejemplos. |
