@@ -1,62 +1,118 @@
 #include "LPC17xx.h"
-#include "lpc17xx_adc.h"
 #include "lpc17xx_systick.h"
+#include "lpc17xx_uart.h"
+#include "temperature_sensor.h"
+
 #include <stdio.h>
 
 #define SAMPLE_PERIOD_MS 100U
-#define ADC_VREF_MV      3300U
+#define TELEMETRY_BAUD_RATE 115200U
 
-/* TMP36: 500 mV a 0 C y pendiente de 10 mV/C. */
-volatile uint16_t temperature_adc;
-volatile uint32_t temperature_mv;
-volatile int32_t temperature_millicelsius;
-volatile uint32_t temperature_sample_count;
-static volatile uint32_t sample_due;
+/* Mediciones y errores disponibles en el depurador. */
+static volatile uint16_t temperature_adc;
+static volatile uint32_t temperature_mv;
+static volatile int32_t temperature_millicelsius;
+static volatile uint32_t temperature_sample_count;
+static volatile uint32_t temperature_adc_timeout_count;
+static volatile uint32_t temperature_uart_error_count;
+
+/* SysTick es el único escritor. Cada tick corresponde a un periodo de muestreo. */
+static volatile uint32_t sample_tick;
 
 void SysTick_Handler(void) {
-	sample_due = 1;
+    ++sample_tick;
+    __SEV();
+}
+
+static uint32_t wait_for_sample(uint32_t last_tick) {
+    uint32_t tick;
+    while ((tick = sample_tick) == last_tick) {
+        /* El evento queda pendiente si SysTick se ejecuta antes de WFE. */
+        __WFE();
+    }
+    return tick;
+}
+
+static bool read_temperature(TemperatureMeasurement *measurement) {
+    const uint32_t start_tick = sample_tick;
+    TemperatureSensor_Start();
+
+    while (!TemperatureSensor_TryRead(measurement)) {
+        if (sample_tick != start_tick) {
+            TemperatureSensor_Cancel();
+            return false;
+        }
+    }
+    return true;
+}
+
+static void init_telemetry(void) {
+    const UART_CFG_T uart_config = {
+        .baudRate = TELEMETRY_BAUD_RATE,
+        .parity = UART_PARITY_NONE,
+        .dataBits = UART_DBITS_8,
+        .stopBits = UART_STOPBIT_1
+    };
+    const UART_FIFO_CFG_T fifo_config = {
+        .resetRxBuf = ENABLE,
+        .resetTxBuf = ENABLE,
+        .dmaMode = DISABLE,
+        .level = UART_FIFO_TRGLEV0
+    };
+
+    UART_PinConfig(UART_TX0_P0_2);
+    UART_Init(UART0, &uart_config);
+    UART_FIFOConfig(UART0, &fifo_config);
+    UART_TxEnable(UART0);
+}
+
+static void report_sample(const TemperatureMeasurement *measurement) {
+    const int32_t temperature = measurement->millicelsius;
+    const int32_t magnitude = temperature < 0 ? -temperature : temperature;
+    const char *sign = temperature < 0 ? "-" : "";
+    const long degrees = (long)(magnitude / 1000);
+    const long fraction = (long)(magnitude % 1000);
+    const uint32_t count = temperature_sample_count + 1U;
+
+    temperature_adc = measurement->raw_adc;
+    temperature_mv = measurement->millivolts;
+    temperature_millicelsius = temperature;
+    temperature_sample_count = count;
+
+    /* Una temperatura en °C por línea, con punto decimal. */
+    char line[16];
+    const int length = snprintf(line, sizeof line, "%s%ld.%03ld\r\n",
+                                sign, degrees, fraction);
+    if (length <= 0 || (size_t)length >= sizeof line ||
+        UART_Send(UART0, (const uint8_t *)line, (uint32_t)length, BLOCKING)
+            != (uint32_t)length) {
+        ++temperature_uart_error_count;
+    }
+
+    printf("N=%lu ADC=%u V=%lu mV T=%s%ld.%03ld C\n",
+           (unsigned long)count,
+           (unsigned int)measurement->raw_adc, (unsigned long)measurement->millivolts,
+           sign, degrees, fraction);
 }
 
 int main(void) {
-	/* Redlib Semihost envia stdout a la consola del depurador. */
-	setvbuf(stdout, NULL, _IONBF, 0);
-	SystemCoreClockUpdate();
-	ADC_Init(100000U); /* Velocidad de conversion, independiente del periodo. */
-	ADC_PinConfig(ADC_CHANNEL_0); /* P0.23 / AD0.0, sin pull-up ni pull-down. */
-	ADC_ChannelEnable(ADC_CHANNEL_0);
-	ADC_BurstDisable();
-	/* Se consulta DONE desde main: no se usa la interrupcion del ADC. */
-	for (uint32_t source = ADC_INT_CH0; source <= ADC_INT_GLOBAL; source++) {
-		ADC_IntDisable((ADC_INT_SOURCE)source);
-	}
-	SYSTICK_InternalInit(SAMPLE_PERIOD_MS);
-	SYSTICK_IntCmd(ENABLE);
-	SYSTICK_Cmd(ENABLE);
-	while (1) {
-		if (sample_due) {
-			sample_due = 0;
-			ADC_StartCmd(ADC_START_NOW);
-			while (ADC_ChannelGetStatus(ADC_CHANNEL_0, ADC_DATA_DONE) == RESET) {
-				/* Espera breve hasta completar esta conversion. */
-			}
-			temperature_adc = ADC_ChannelGetData(ADC_CHANNEL_0);
-			ADC_StartCmd(ADC_START_CONTINUOUS); /* START=0; BURST desactivado. */
-			temperature_mv = ((uint32_t)temperature_adc * ADC_VREF_MV + 2047U) / 4095U;
-			temperature_millicelsius = (int32_t)(
-				((uint64_t)temperature_adc * ADC_VREF_MV * 100U + 2047U) / 4095U) - 50000;
-			temperature_sample_count++;
-			/* Formato decimal con enteros: no requiere printf con punto flotante. */
-			const int32_t temperature = temperature_millicelsius;
-			const int32_t magnitude = temperature < 0 ? -temperature : temperature;
-			printf("N=%lu ADC=%u V=%lu mV T=%s%ld.%03ld C\n",
-				(unsigned long)temperature_sample_count,
-				(unsigned int)temperature_adc,
-				(unsigned long)temperature_mv,
-				temperature < 0 ? "-" : "",
-				(long)(magnitude / 1000), (long)(magnitude % 1000));
-		} else {
-			__WFI();
-		}
-	}
-    return 0 ;
+    /* Redlib Semihost dirige stdout a la consola del depurador. */
+    setvbuf(stdout, NULL, _IONBF, 0);
+    SystemCoreClockUpdate();
+    TemperatureSensor_Init();
+    init_telemetry();
+    SYSTICK_InternalInit(SAMPLE_PERIOD_MS);
+    SYSTICK_IntCmd(ENABLE);
+    SYSTICK_Cmd(ENABLE);
+
+    uint32_t last_tick = 0;
+    while (1) {
+        TemperatureMeasurement measurement;
+        last_tick = wait_for_sample(last_tick);
+        if (read_temperature(&measurement)) {
+            report_sample(&measurement);
+        } else {
+            ++temperature_adc_timeout_count;
+        }
+    }
 }
