@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Control térmico · Maqueta</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main>
+    <header><div><p class="eyebrow">LPC1769 / HC-05</p><h1>Control térmico</h1><p class="subtitle">Monitor de la maqueta</p></div><span class="tag">Conexión local</span></header>
+    <section class="connection" aria-label="Conexión serie">
+      <div class="connection-copy"><span id="status-dot" class="dot"></span><div><strong id="connection-status" role="status">Desconectado</strong><p>9600 baudios · 8N1</p></div></div>
+      <div class="buttons"><button id="connect">Conectar</button><button id="disconnect" class="secondary" disabled>Desconectar</button></div>
+    </section>
+    <p id="connection-message" class="message" role="status" aria-live="polite">Emparejá el HC-05 en Windows y cerrá PuTTY antes de conectar.</p>
+    <div class="grid">
+      <section class="card temperature-card" aria-labelledby="temperature-title">
+        <h2 id="temperature-title">Temperatura actual</h2>
+        <div class="reading"><span id="temperature">—</span><span class="unit">°C</span></div>
+        <p id="sample-status" class="muted">Esperando la primera medición.</p>
+        <div class="card-footer"><span class="dot small"></span>Actualización del chip cada 100 ms</div>
+      </section>
+      <section class="card" aria-labelledby="reference-title">
+        <h2 id="reference-title">Temperatura objetivo</h2>
+        <form id="reference-form" novalidate>
+          <label for="reference">Nueva consigna <span>34–37 °C</span></label>
+          <div class="input-row"><div class="input-wrap"><input id="reference" type="text" inputmode="decimal" placeholder="36.500" autocomplete="off" maxlength="6" aria-describedby="reference-help"><span>°C</span></div><button id="send" disabled>Enviar</button></div>
+          <p id="reference-help" class="muted">Punto o coma, hasta tres decimales.</p>
+        </form>
+        <p id="send-status" class="message" role="status" aria-live="polite">Conectá el chip para enviar una consigna.</p>
+        <div class="confirmed"><span>Última consigna confirmada</span><strong id="confirmed-reference">Desconocida</strong><small id="reference-status">Se muestra cuando el chip confirma la recepción.</small></div>
+      </section>
+    </div>
+    <aside class="notice"><strong>Envío de consigna, sin regulación automática</strong><p>La temperatura objetivo se guarda en el chip. Esta versión no modifica los PWM ni controla la bocina.</p></aside>
+    <section class="instructions"><h2>Cómo conectar</h2><ol><li>Emparejá el HC-05 desde Bluetooth en Windows.</li><li>Cerrá PuTTY para liberar el puerto serie.</li><li>Pulsá <strong>Conectar</strong> y elegí el puerto del HC-05: actualmente <strong>COM5</strong>.</li></ol><p>Usá Chrome de escritorio. Abrir el puerto desde esta página establece la conexión; no hace falta abrir PuTTY primero. Si Windows cambia el número de COM, seleccioná el nuevo.</p></section>
+    <footer>Prototipo académico · Solo para pruebas de la maqueta</footer>
+  </main>
+</body>
+</html>

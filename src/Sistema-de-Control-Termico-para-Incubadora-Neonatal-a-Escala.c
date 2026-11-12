@@ -3,13 +3,14 @@
 #include "lpc17xx_uart.h"
 #include "temperature_sensor.h"
 #include "actuators_pwm.h"
+#include "speaker_sine.h"
 
 #include <stdio.h>
 
 #define SAMPLE_PERIOD_MS 100U
 #define COOLER_INITIAL_DUTY_PERCENT 25U
 #define HEATER_INITIAL_DUTY_PERCENT 100U
-#define TELEMETRY_BAUD_RATE 115200U
+#define TELEMETRY_BAUD_RATE 9600U
 #define REFERENCE_MIN_MILLIC 34000U
 #define REFERENCE_MAX_MILLIC 37000U
 #define REFERENCE_LINE_LENGTH 6U  /* Hasta dos enteros y tres decimales: 36.500. */
@@ -23,6 +24,7 @@ static volatile uint32_t temperature_sample_count;
 static volatile uint32_t temperature_adc_timeout_count;
 static volatile uint32_t temperature_uart_error_count;
 static volatile uint32_t temperature_reference_millicelsius;
+static volatile bool speaker_sine_ready;
 
 /* SysTick es el único escritor. Cada tick corresponde a un periodo de muestreo. */
 static volatile uint32_t sample_tick;
@@ -192,6 +194,7 @@ int main(void) {
     /* Redlib Semihost dirige stdout a la consola del depurador. */
     setvbuf(stdout, NULL, _IONBF, 0);
     SystemCoreClockUpdate();
+    speaker_sine_ready = SpeakerSine_Init();
     ActuatorsPWM_Init();
     ActuatorsPWM_SetCoolerDuty(COOLER_INITIAL_DUTY_PERCENT);
     ActuatorsPWM_SetHeaterDuty(HEATER_INITIAL_DUTY_PERCENT);
