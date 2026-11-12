@@ -2,10 +2,13 @@
 #include "lpc17xx_systick.h"
 #include "lpc17xx_uart.h"
 #include "temperature_sensor.h"
+#include "actuators_pwm.h"
 
 #include <stdio.h>
 
 #define SAMPLE_PERIOD_MS 100U
+#define COOLER_INITIAL_DUTY_PERCENT 25U
+#define HEATER_INITIAL_DUTY_PERCENT 100U
 #define TELEMETRY_BAUD_RATE 115200U
 #define REFERENCE_MIN_MILLIC 34000U
 #define REFERENCE_MAX_MILLIC 37000U
@@ -189,6 +192,9 @@ int main(void) {
     /* Redlib Semihost dirige stdout a la consola del depurador. */
     setvbuf(stdout, NULL, _IONBF, 0);
     SystemCoreClockUpdate();
+    ActuatorsPWM_Init();
+    ActuatorsPWM_SetCoolerDuty(COOLER_INITIAL_DUTY_PERCENT);
+    ActuatorsPWM_SetHeaterDuty(HEATER_INITIAL_DUTY_PERCENT);
     TemperatureSensor_Init();
     init_telemetry();
     SYSTICK_InternalInit(SAMPLE_PERIOD_MS);
