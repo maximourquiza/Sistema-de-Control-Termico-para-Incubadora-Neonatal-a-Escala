@@ -2,6 +2,7 @@
 #include "lpc17xx_systick.h"
 #include "lpc17xx_uart.h"
 #include "temperature_sensor.h"
+#include "temperature_filter.h"
 #include "actuators_pwm.h"
 #include "speaker_sine.h"
 
@@ -20,6 +21,8 @@
 static volatile uint16_t temperature_adc;
 static volatile uint32_t temperature_mv;
 static volatile int32_t temperature_millicelsius;
+static volatile int32_t temperature_median_millicelsius;
+static volatile int32_t temperature_filtered_millicelsius;
 static volatile uint32_t temperature_sample_count;
 static volatile uint32_t temperature_adc_timeout_count;
 static volatile uint32_t temperature_uart_error_count;
@@ -161,9 +164,11 @@ static void poll_reference(void) {
     }
 }
 
-static void report_sample(const TemperatureMeasurement *measurement) {
-    const int32_t temperature = measurement->millicelsius;
-    const int32_t magnitude = temperature < 0 ? -temperature : temperature;
+static void report_sample(const TemperatureMeasurement *measurement,
+                          const TemperatureFilterResult *filtered) {
+    const int32_t temperature = filtered->filtered_millicelsius;
+    /* Ampliar antes de negar para admitir tambien el minimo de int32_t. */
+    const int64_t magnitude = temperature < 0 ? -(int64_t)temperature : (int64_t)temperature;
     const char *sign = temperature < 0 ? "-" : "";
     const long degrees = (long)(magnitude / 1000);
     const long fraction = (long)(magnitude % 1000);
@@ -171,10 +176,12 @@ static void report_sample(const TemperatureMeasurement *measurement) {
 
     temperature_adc = measurement->raw_adc;
     temperature_mv = measurement->millivolts;
-    temperature_millicelsius = temperature;
+    temperature_millicelsius = measurement->millicelsius;
+    temperature_median_millicelsius = filtered->median_millicelsius;
+    temperature_filtered_millicelsius = temperature;
     temperature_sample_count = count;
 
-    /* Una temperatura en °C por línea, con punto decimal. */
+    /* Temperatura filtrada en °C, conservando el protocolo de la webapp. */
     char line[16];
     const int length = snprintf(line, sizeof line, "%s%ld.%03ld\r\n",
                                 sign, degrees, fraction);
@@ -204,15 +211,20 @@ int main(void) {
     SYSTICK_IntCmd(ENABLE);
     SYSTICK_Cmd(ENABLE);
 
+    TemperatureFilter filter;
+    TemperatureFilter_Reset(&filter);
     uint32_t last_tick = 0;
     while (1) {
         TemperatureMeasurement measurement;
         last_tick = wait_for_sample(last_tick);
         poll_reference();
         if (read_temperature(&measurement)) {
-            report_sample(&measurement);
+            const TemperatureFilterResult filtered =
+                TemperatureFilter_Process(&filter, measurement.millicelsius);
+            report_sample(&measurement, &filtered);
         } else {
             ++temperature_adc_timeout_count;
+            TemperatureFilter_Reset(&filter);
         }
     }
 }
