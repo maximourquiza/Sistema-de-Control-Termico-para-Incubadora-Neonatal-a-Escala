@@ -70,6 +70,7 @@ void ActuatorsPWM_SetCoolerDuty(uint32_t percent) {
     if (percent > 100U) {
         percent = 100U;
     }
+    percent = 100 - percent;
     /* MR1 por encima de MR0 mantiene la salida alta durante todo el periodo. */
     const uint32_t ticks = percent == 100U ? cooler_period_ticks + 1U :
         (uint32_t)((uint64_t)cooler_period_ticks * percent / 100U);
@@ -80,6 +81,7 @@ void ActuatorsPWM_SetHeaterDuty(uint32_t percent) {
     if (percent > 100U) {
         percent = 100U;
     }
+    percent = 100 - percent;
     const uint32_t high_us = HEATER_PERIOD_US * percent / 100U;
     const uint32_t low_us = HEATER_PERIOD_US - high_us;
     if (high_us < HEATER_MIN_PHASE_US) {
