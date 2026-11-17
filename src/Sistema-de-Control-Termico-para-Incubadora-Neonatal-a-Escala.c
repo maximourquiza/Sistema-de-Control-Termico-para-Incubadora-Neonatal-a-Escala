@@ -10,13 +10,15 @@
 #include <stdio.h>
 
 #define SAMPLE_PERIOD_MS 100U
-#define COOLER_INITIAL_DUTY_PERCENT 25U
+#define COOLER_INITIAL_DUTY_PERCENT 15U
 #define ACQUISITION_TIMEOUT_TICKS (1000U / SAMPLE_PERIOD_MS)
 #define TELEMETRY_BAUD_RATE 9600U
 #define REFERENCE_MIN_MILLIC 34000U
 #define REFERENCE_MAX_MILLIC 37000U
 #define REFERENCE_LINE_LENGTH 6U  /* Hasta dos enteros y tres decimales: 36.500. */
 #define UART_RX_BYTES_PER_POLL 16U
+#define TEMPERATURE_ALARM_ON_MILLIC 40000
+#define TEMPERATURE_ALARM_OFF_MILLIC 39500
 
 /* Mediciones y errores disponibles en el depurador. */
 static volatile uint16_t temperature_adc;
@@ -26,9 +28,11 @@ static volatile int32_t temperature_median_millicelsius;
 static volatile int32_t temperature_filtered_millicelsius;
 static volatile uint32_t temperature_sample_count;
 static volatile uint32_t temperature_adc_timeout_count;
+static volatile uint32_t temperature_sensor_invalid_count;
 static volatile uint32_t temperature_uart_error_count;
 static volatile uint32_t temperature_reference_millicelsius;
 static volatile bool speaker_sine_ready;
+static volatile bool temperature_alarm_active;
 static TemperatureController temperature_controller;
 static volatile TemperatureControlState temperature_control_state;
 static volatile uint32_t heater_duty_percent;
@@ -46,7 +50,9 @@ void SysTick_Handler(void) {
         sample_tick - last_valid_sample_tick >= ACQUISITION_TIMEOUT_TICKS) {
         ActuatorsPWM_SetHeaterDuty(0);
         heater_duty_percent = 0;
+#if !TEMPERATURE_CONTROL_PROTOTYPE_MODE
         temperature_control_state = TEMPERATURE_CONTROL_FAULT_GAP;
+#endif
         control_watchdog_expired = true;
         control_watchdog_armed = false;
     }
@@ -95,6 +101,29 @@ static void update_control(const TemperatureMeasurement *measurement,
         temperature_control_state = temperature_controller.state;
     }
     __set_PRIMASK(primask);
+}
+
+/* Aviso termico independiente del estado/enclavamiento del controlador.
+ * Solo main lo actualiza, con una adquisicion completada y plausible. */
+static void update_temperature_alarm(const TemperatureMeasurement *measurement,
+                                     const TemperatureFilterResult *filtered) {
+    const int32_t temperature = filtered->filtered_millicelsius;
+    const int32_t median = filtered->median_millicelsius;
+    if (measurement->millicelsius < -40000 || measurement->millicelsius > 125000 ||
+        temperature < -40000 || temperature > 125000 ||
+        median < -40000 || median > 125000) {
+        return; /* Una falla de sensor no enciende ni silencia el aviso. */
+    }
+
+    if (!temperature_alarm_active &&
+        (temperature >= TEMPERATURE_ALARM_ON_MILLIC || median >= TEMPERATURE_ALARM_ON_MILLIC)) {
+        temperature_alarm_active = true;
+        if (speaker_sine_ready) speaker_sine_ready = SpeakerSine_Start();
+    } else if (temperature_alarm_active &&
+               temperature <= TEMPERATURE_ALARM_OFF_MILLIC && median <= TEMPERATURE_ALARM_OFF_MILLIC) {
+        SpeakerSine_Stop();
+        temperature_alarm_active = false;
+    }
 }
 
 static uint32_t wait_for_sample(uint32_t last_tick) {
@@ -258,12 +287,17 @@ static void report_sample(const TemperatureMeasurement *measurement,
         ++temperature_uart_error_count;
     }
 
-    printf("N=%lu ADC=%u V=%lu mV T=%s%ld.%03ld C tick=%lu REF_mC=%lu DUTY=%lu STATE=%u\n",
+    printf("N=%lu ADC=%u V=%lu mV T=%s%ld.%03ld C tick=%lu REF_mC=%lu DUTY=%lu STATE=%u BOOST=%u BASE=%lu I_mPct=%ld DROP=%lu\n",
            (unsigned long)count,
            (unsigned int)measurement->raw_adc, (unsigned long)measurement->millivolts,
            sign, degrees, fraction, (unsigned long)sample_tick,
            (unsigned long)temperature_reference_millicelsius,
-           (unsigned long)heater_duty_percent, (unsigned int)temperature_control_state);
+           (unsigned long)heater_duty_percent, (unsigned int)temperature_control_state,
+           (unsigned int)temperature_controller.preheating,
+           (unsigned long)(temperature_controller.configured ?
+               temperature_controller.config.maintenance_percent : 0.0f),
+           (long)(temperature_controller.integral_percent * 1000.0f),
+           (unsigned long)temperature_sensor_invalid_count);
 }
 
 int main(void) {
@@ -291,12 +325,30 @@ int main(void) {
         poll_reference();
         if (read_temperature(&measurement)) {
             const uint32_t current_tick = sample_tick;
+#if TEMPERATURE_CONTROL_PROTOTYPE_MODE
+            if (measurement.millicelsius < -40000 || measurement.millicelsius > 125000) {
+                /* Descartar antes de los filtros: un pico no debe contaminar
+                 * la mediana ni el IIR de las adquisiciones siguientes. */
+                const uint32_t primask = __get_PRIMASK();
+                __disable_irq();
+                synchronize_watchdog();
+                trip_control(TEMPERATURE_CONTROL_FAULT_SENSOR);
+                __set_PRIMASK(primask);
+                ++temperature_sensor_invalid_count;
+                last_tick = current_tick;
+                previous_sample_tick = current_tick;
+                printf("CONTROL SAMPLE_DISCARDED ADC=%u tick=%lu\n",
+                       (unsigned int)measurement.raw_adc, (unsigned long)current_tick);
+                continue;
+            }
+#endif
             if (current_tick - previous_sample_tick >= ACQUISITION_TIMEOUT_TICKS) {
                 TemperatureFilter_Reset(&filter);
             }
             const TemperatureFilterResult filtered =
                 TemperatureFilter_Process(&filter, measurement.millicelsius);
             update_control(&measurement, &filtered, current_tick - previous_sample_tick);
+            update_temperature_alarm(&measurement, &filtered);
             /* No reutilizar un tick que haya transcurrido durante RX o el ADC. */
             last_tick = current_tick;
             if (measurement.millicelsius < -40000 || measurement.millicelsius > 125000) {
@@ -313,7 +365,7 @@ int main(void) {
             ++temperature_adc_timeout_count;
             TemperatureFilter_Reset(&filter);
             last_tick = sample_tick;
-            printf("CONTROL FAULT=%u DUTY=0 tick=%lu\n",
+            printf("CONTROL ADC_TIMEOUT STATE=%u DUTY=0 tick=%lu\n",
                    (unsigned int)temperature_control_state, (unsigned long)sample_tick);
         }
     }

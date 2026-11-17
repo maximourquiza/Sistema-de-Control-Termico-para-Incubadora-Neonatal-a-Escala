@@ -6,6 +6,7 @@
 #undef main
 
 #include <string.h>
+#include <stdarg.h>
 
 #define CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 
@@ -14,6 +15,7 @@ static const char *rx_text;
 static char tx_text[128];
 static unsigned int tx_length;
 static bool adc_completes;
+static char debug_text[256];
 
 void ActuatorsPWM_SetHeaterDuty(uint32_t duty) {
     applied_duty = duty;
@@ -54,8 +56,11 @@ bool TemperatureSensor_TryRead(TemperatureMeasurement *measurement) {
 
 /* Verificar el camino de telemetria sin ejecutar semihosting en el emulador. */
 int test_printf(const char *format, ...) {
-    (void)format;
-    return 0;
+    va_list arguments;
+    va_start(arguments, format);
+    const int length = vsnprintf(debug_text, sizeof debug_text, format, arguments);
+    va_end(arguments);
+    return length;
 }
 
 static void receive_reference(const char *text) {
@@ -72,12 +77,12 @@ int run_control_integration_tests(void) {
     receive_reference("36.5\r\n");
     CHECK(strcmp(tx_text, "REF=36500\r\n") == 0);
     update_control(&measurement, &filtered, 1);
-    CHECK(applied_duty == 15 && temperature_control_state == TEMPERATURE_CONTROL_RUNNING);
+    CHECK(applied_duty == 100 && temperature_control_state == TEMPERATURE_CONTROL_RUNNING);
     const uint32_t calls = heater_calls;
     update_control(&measurement, &filtered, 1);
     CHECK(heater_calls == calls); /* No reiniciar PWM si no cambia el duty. */
     for (unsigned int i = 0; i < 9; ++i) SysTick_Handler();
-    CHECK(applied_duty == 15);
+    CHECK(applied_duty == 100);
     SysTick_Handler();
     CHECK(applied_duty == 0 && control_watchdog_expired);
     update_control(&measurement, &filtered, 10);
@@ -86,7 +91,7 @@ int run_control_integration_tests(void) {
     CHECK(applied_duty == 0);
     receive_reference("36\n");
     update_control(&measurement, &filtered, 1);
-    CHECK(applied_duty == 10);
+    CHECK(applied_duty == 100);
     filtered.median_millicelsius = 40000;
     update_control(&measurement, &filtered, 1);
     CHECK(applied_duty == 0 && temperature_control_state == TEMPERATURE_CONTROL_FAULT_OVERTEMP);
@@ -98,14 +103,14 @@ int run_control_integration_tests(void) {
     CHECK(applied_duty == 0);
     receive_reference("36\n");
     update_control(&measurement, &filtered, 1);
-    CHECK(applied_duty == 10);
+    CHECK(applied_duty == 100);
     measurement.millicelsius = 126000;
     update_control(&measurement, &filtered, 1);
     CHECK(applied_duty == 0 && temperature_control_state == TEMPERATURE_CONTROL_FAULT_SENSOR);
     measurement.millicelsius = 35000;
     receive_reference("36\n");
     update_control(&measurement, &filtered, 1);
-    CHECK(applied_duty == 10);
+    CHECK(applied_duty == 100);
     adc_completes = false;
     CHECK(!read_temperature(&measurement));
     /* main usa esta misma secuencia al recibir false. */
@@ -119,8 +124,12 @@ int run_control_integration_tests(void) {
     CHECK(temperature_reference_millicelsius == 36000);
     CHECK(temperature_controller.reference_pending == false);
     tx_length = 0;
+    temperature_controller.integral_percent = 1.25f;
+    temperature_sensor_invalid_count = 7;
     report_sample(&measurement, &filtered);
     CHECK(strcmp(tx_text, "35.000\r\n") == 0);
     CHECK(temperature_sample_count == 1);
+    CHECK(strstr(debug_text, "I_mPct=1250 DROP=7") != 0);
+    CHECK(strstr(debug_text, "BASE=40") != 0);
     return 0;
 }

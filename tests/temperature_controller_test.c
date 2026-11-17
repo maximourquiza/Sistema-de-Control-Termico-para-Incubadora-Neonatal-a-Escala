@@ -20,7 +20,7 @@ static int test_startup_and_reference(void) {
     CHECK(!TemperatureController_SetReference(&controller, 37.001f));
     CHECK(!TemperatureController_SetReference(&controller, NAN));
     CHECK(TemperatureController_SetReference(&controller, 36));
-    CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 10);
+    CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 100);
     CHECK(controller.state == TEMPERATURE_CONTROL_RUNNING);
     CHECK(TemperatureController_Update(&controller, 37, 37, 0.1f) == 0);
     return 0;
@@ -32,26 +32,26 @@ static int test_anti_windup(void) {
         CHECK(TemperatureController_Update(&controller, 20, 20, 0.1f) == 100);
     }
     CHECK(controller.integral_percent == 0);
-    CHECK(TemperatureController_Update(&controller, 36, 36, 0.1f) == 0);
+    CHECK(TemperatureController_Update(&controller, 36, 36, 0.1f) == 40);
     for (unsigned int i = 0; i < 500; ++i) {
         CHECK(TemperatureController_Update(&controller, 39, 39, 0.1f) == 0);
     }
     CHECK(controller.integral_percent == 0);
-    CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 10);
+    CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 100);
     return 0;
 }
 
 static int test_integral_and_setpoint(void) {
     TemperatureController controller = start_controller(36);
     for (unsigned int i = 0; i < 100; ++i) {
-        TemperatureController_Update(&controller, 35, 35, 0.1f);
+        TemperatureController_Update(&controller, 35.5f, 35.5f, 0.1f);
     }
-    CHECK(controller.integral_percent > 0.199f && controller.integral_percent < 0.201f);
+    CHECK(controller.integral_percent > 0.999f && controller.integral_percent < 1.001f);
     const float integral = controller.integral_percent;
-    CHECK(TemperatureController_SetReference(&controller, 35));
-    TemperatureController_Update(&controller, 35, 35, 0.1f);
+    CHECK(TemperatureController_SetReference(&controller, 35.5f));
+    TemperatureController_Update(&controller, 35.5f, 35.5f, 0.1f);
     CHECK(controller.integral_percent == integral);
-    TemperatureController_Update(&controller, 35.01f, 35.01f, 0.1f);
+    TemperatureController_Update(&controller, 35.51f, 35.51f, 0.1f);
     CHECK(controller.integral_percent < integral);
     return 0;
 }
@@ -59,17 +59,17 @@ static int test_integral_and_setpoint(void) {
 static int test_elapsed_and_derivative(void) {
     TemperatureController short_step = start_controller(36);
     TemperatureController long_step = start_controller(36);
-    TemperatureController_Update(&short_step, 35, 35, 0.1f);
-    TemperatureController_Update(&long_step, 35, 35, 0.3f);
+    TemperatureController_Update(&short_step, 35.5f, 35.5f, 0.1f);
+    TemperatureController_Update(&long_step, 35.5f, 35.5f, 0.3f);
     CHECK(long_step.integral_percent > short_step.integral_percent * 2.99f);
-    TemperatureControllerConfig config = {0, 0, 10, 1};
+    TemperatureControllerConfig config = {0, 0, 10, 1, 0};
     TemperatureController_Init(&short_step, &config);
     TemperatureController_SetReference(&short_step, 36);
     CHECK(TemperatureController_Update(&short_step, 35, 35, 0.1f) == 0);
-    CHECK(TemperatureController_Update(&short_step, 34, 34, 0.1f) == 9);
+    CHECK(TemperatureController_Update(&short_step, 34.5f, 34.5f, 0.1f) == 5);
     const float rate = short_step.derivative_c_per_s;
-    TemperatureController_SetReference(&short_step, 37);
-    TemperatureController_Update(&short_step, 34, 34, 0.1f);
+    TemperatureController_SetReference(&short_step, 35.5f);
+    TemperatureController_Update(&short_step, 34.5f, 34.5f, 0.1f);
     CHECK(short_step.derivative_c_per_s > rate); /* Sin impulso por la consigna. */
     CHECK(short_step.derivative_c_per_s < 0);
     return 0;
@@ -85,7 +85,7 @@ static int test_faults_and_rearm(void) {
     CHECK(TemperatureController_Update(&controller, 37, 38, 0.1f) == 0);
     CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 0);
     TemperatureController_SetReference(&controller, 36);
-    CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 10);
+    CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 100);
     CHECK(controller.state == TEMPERATURE_CONTROL_RUNNING);
     CHECK(TemperatureController_Update(&controller, 39, 40, 0.1f) == 0);
     CHECK(controller.state == TEMPERATURE_CONTROL_FAULT_OVERTEMP);
@@ -93,7 +93,7 @@ static int test_faults_and_rearm(void) {
     CHECK(TemperatureController_Update(&controller, 40, 39, 0.1f) == 0);
     CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 0);
     TemperatureController_SetReference(&controller, 36);
-    CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 10);
+    CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 100);
     return 0;
 }
 
@@ -107,16 +107,20 @@ static int test_invalid_input_and_reset(void) {
     const float bad_temperatures[] = {-41, 126, NAN, INFINITY};
     for (unsigned int i = 0; i < sizeof bad_temperatures / sizeof bad_temperatures[0]; ++i) {
         TemperatureController controller = start_controller(36);
+        TemperatureController_Update(&controller, 35.5f, 35.5f, 0.1f);
+        CHECK(controller.integral_percent > 0);
         CHECK(TemperatureController_Update(&controller, bad_temperatures[i], 35, 0.1f) == 0);
         CHECK(controller.state == TEMPERATURE_CONTROL_FAULT_SENSOR);
+        CHECK(controller.integral_percent == 0);
     }
     TemperatureController controller = start_controller(36);
     TemperatureController_Update(&controller, 35, 35, 0.1f);
     TemperatureController_Reset(&controller);
     CHECK(controller.integral_percent == 0 && !controller.derivative_initialized);
-    CHECK(controller.config.kp == 10);
+    CHECK(controller.config.kp == 60);
+    CHECK(controller.config.ki == 0.20f && controller.config.maintenance_percent == 40);
     CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 0);
-    TemperatureControllerConfig invalid = {NAN, 0, 0, 1};
+    TemperatureControllerConfig invalid = {NAN, 0, 0, 1, 40};
     CHECK(!TemperatureController_Init(&controller, &invalid));
     CHECK(!TemperatureController_SetReference(&controller, 36));
     CHECK(TemperatureController_Update(&controller, 35, 35, 0.1f) == 0);

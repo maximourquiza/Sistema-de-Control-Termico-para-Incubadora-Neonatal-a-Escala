@@ -16,10 +16,33 @@
 /* El enlazador reserva ambas regiones en RAM accesible por el DMA. */
 __BSS(RAM2) __attribute__((aligned(4))) static uint32_t sine_samples[SINE_SAMPLE_COUNT];
 __BSS(RAM2) __attribute__((aligned(4))) static GPDMA_LLI_T sine_descriptor;
+static bool speaker_initialized;
+static bool speaker_running;
+static const DAC_CONVERTER_CFG_T dac_disabled = {DISABLE, DISABLE, DISABLE};
+static const DAC_CONVERTER_CFG_T dac_running = {DISABLE, ENABLE, ENABLE};
+
+static bool configure_dma_channel(void) {
+    const GPDMA_Channel_CFG_T dma_config = {
+        .channelNum = GPDMA_CH_7,
+        .transferSize = SINE_SAMPLE_COUNT,
+        .type = GPDMA_M2P,
+        .srcMemAddr = (uint32_t)sine_samples,
+        .dstConn = GPDMA_DAC,
+        .src = {GPDMA_WORD, GPDMA_BSIZE_1, ENABLE},
+        .dst = {GPDMA_WORD, GPDMA_BSIZE_1, DISABLE},
+        .intTC = DISABLE,
+        .intErr = DISABLE,
+        .linkedList = (uint32_t)&sine_descriptor
+    };
+    if (GPDMA_SetupChannel(&dma_config) != SUCCESS) {
+        GPDMA_ChannelStop(GPDMA_CH_7);
+        return false;
+    }
+    return true;
+}
 
 bool SpeakerSine_Init(void) {
-    const DAC_CONVERTER_CFG_T dac_disabled = {DISABLE, DISABLE, DISABLE};
-    const DAC_CONVERTER_CFG_T dac_running = {DISABLE, ENABLE, ENABLE};
+    if (speaker_initialized) return true;
     DAC_Init(); /* P0.26 / AOUT, PCLK = CCLK / 4. */
     DAC_ConfigDAConverterControl(&dac_disabled);
     DAC_SetBias(DAC_700uA);
@@ -45,28 +68,37 @@ bool SpeakerSine_Init(void) {
         GPDMA_DMACCxControl_DWidth(GPDMA_WORD) |
         GPDMA_DMACCxControl_SI;
 
-    const GPDMA_Channel_CFG_T dma_config = {
-        .channelNum = GPDMA_CH_7,
-        .transferSize = SINE_SAMPLE_COUNT,
-        .type = GPDMA_M2P,
-        .srcMemAddr = (uint32_t)sine_samples,
-        .dstConn = GPDMA_DAC,
-        .src = {GPDMA_WORD, GPDMA_BSIZE_1, ENABLE},
-        .dst = {GPDMA_WORD, GPDMA_BSIZE_1, DISABLE},
-        .intTC = DISABLE,
-        .intErr = DISABLE,
-        .linkedList = (uint32_t)&sine_descriptor
-    };
-
     /* Unica inicializacion global de GPDMA: sensor y UART usan sondeo. */
     GPDMA_Init();
-    if (GPDMA_SetupChannel(&dma_config) != SUCCESS) {
-        GPDMA_ChannelStop(GPDMA_CH_7);
+    if (!configure_dma_channel()) return false;
+    DAC_SetDMATimeOut((uint16_t)timeout);
+    speaker_initialized = true;
+    return true;
+}
+
+bool SpeakerSine_Start(void) {
+    if (!speaker_initialized) return false;
+    if (speaker_running) return true;
+    /* Setup restaura origen, contador y LLI; solo afecta al canal reservado. */
+    if (!configure_dma_channel()) {
+        speaker_initialized = false;
         return false;
     }
-    DAC_SetDMATimeOut((uint16_t)timeout);
+    DAC_UpdateValue(512U);
     __DMB(); /* Publicar tabla y descriptor antes de habilitar el canal. */
     GPDMA_ChannelStart(GPDMA_CH_7);
     DAC_ConfigDAConverterControl(&dac_running);
+    speaker_running = true;
     return true;
+}
+
+void SpeakerSine_Stop(void) {
+    if (!speaker_running) return;
+    DAC_ConfigDAConverterControl(&dac_disabled);
+    /* Terminar la transferencia activa antes de fijar el nivel de reposo. */
+    GPDMA_ChannelGracefulStop(GPDMA_CH_7);
+    GPDMA_ChannelStop(GPDMA_CH_7);
+    __DSB();
+    DAC_UpdateValue(512U);
+    speaker_running = false;
 }

@@ -1,4 +1,4 @@
-"""Run controller, firmware integration and PWM tests on emulated Cortex-M3.
+"""Run controller, integration, PWM, alarm and speaker tests on Cortex-M3.
 
 Requires Unicorn and the MCUXpresso toolchain. Optional argument: tools/bin path.
 """
@@ -19,6 +19,13 @@ SUITES = {
     "controller": ["src/temperature_controller.c", "tests/temperature_controller_test.c"],
     "control_integration": ["src/temperature_controller.c", "tests/control_integration_test.c"],
     "actuators_pwm": ["src/actuators_pwm.c", "tests/actuators_pwm_test.c"],
+    "temperature_alarm": ["src/temperature_controller.c", "tests/temperature_alarm_test.c"],
+    "speaker_sine": ["tests/speaker_sine_test.c"],
+    "prototype_control": ["src/temperature_controller.c", "tests/prototype_control_test.c"],
+    "preheating": ["src/temperature_controller.c", "tests/preheating_test.c"],
+    "preheating_prototype": ["src/temperature_controller.c", "tests/preheating_test.c"],
+    "maintenance": ["src/temperature_controller.c", "tests/maintenance_test.c"],
+    "maintenance_prototype": ["src/temperature_controller.c", "tests/maintenance_test.c"],
 }
 
 
@@ -29,14 +36,16 @@ def run(command):
 with tempfile.TemporaryDirectory(prefix="temperature-control-") as directory:
     target = Path(directory)
     for suite, sources in SUITES.items():
+        prototype_mode = 1 if suite == "prototype_control" or suite.endswith("_prototype") else 0
         for optimization in ("-O0", "-Os"):
             executable = target / "test.elf"
             binary = target / "test.bin"
-            entry_name = f"run_{suite}_tests"
+            entry_name = f"run_{suite.removesuffix('_prototype')}_tests"
             run([
                 TOOLS / "arm-none-eabi-gcc.exe", "-mcpu=cortex-m3", "-mthumb",
                 "-std=c99", "-ffreestanding", "-fno-builtin", "-nostdlib", optimization,
                 "-ffunction-sections", "-fdata-sections", "-D__REDLIB__", "-nostdinc",
+                f"-DTEMPERATURE_CONTROL_PROTOTYPE_MODE={prototype_mode}",
                 "-isystem", TOOLS.parent / "redlib/include",
                 "-isystem", TOOLS.parent / "features/include",
                 "-Wall", "-Wextra", "-Werror", "-I", ROOT / "src",
@@ -65,4 +74,4 @@ with tempfile.TemporaryDirectory(prefix="temperature-control-") as directory:
             result = emulator.reg_read(UC_ARM_REG_R0)
             if result:
                 raise AssertionError(f"{suite} {optimization}: C assertion at line {result}")
-            print(f"{suite} {optimization}: passed on emulated Cortex-M3 with Redlib")
+            print(f"{suite} {optimization}: passed with Redlib (prototype={prototype_mode})")
