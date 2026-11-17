@@ -33,7 +33,7 @@ void ActuatorsPWM_Init(void) {
         .intEn = DISABLE,
         .stopEn = DISABLE,
         .resetEn = DISABLE,
-        .matchValue = 0
+        .matchValue = cooler_period_ticks + 1U /* Etapa activa en bajo: apagado. */
     };
     PWM_ConfigMatch(&pwm_period);
     PWM_ConfigMatch(&pwm_duty);
@@ -56,10 +56,11 @@ void ActuatorsPWM_Init(void) {
     NVIC_DisableIRQ(TIMER1_IRQn);
     TIM_InitTimer(LPC_TIM1, &heater_timer);
     TIM_ConfigMatch(LPC_TIM1, &heater_match);
-    LPC_TIM1->EMR &= ~HEATER_OUTPUT_MASK;
+    TIM_Disable(LPC_TIM1);
+    LPC_TIM1->EMR |= HEATER_OUTPUT_MASK; /* Nivel alto: resistencias apagadas. */
     TIM_PinConfig(TIM_MAT1_0_P1_22);
-    heater_high_us = 0;
-    heater_low_us = HEATER_PERIOD_US;
+    heater_high_us = HEATER_PERIOD_US;
+    heater_low_us = 0;
     heater_constant = true;
     TIM_ClearIntPending(LPC_TIM1, TIM_MR0_INT);
     NVIC_ClearPendingIRQ(TIMER1_IRQn);

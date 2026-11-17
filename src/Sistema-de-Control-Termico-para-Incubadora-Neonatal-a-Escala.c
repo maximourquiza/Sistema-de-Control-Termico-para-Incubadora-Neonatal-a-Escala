@@ -3,6 +3,7 @@
 #include "lpc17xx_uart.h"
 #include "temperature_sensor.h"
 #include "temperature_filter.h"
+#include "temperature_controller.h"
 #include "actuators_pwm.h"
 #include "speaker_sine.h"
 
@@ -10,7 +11,7 @@
 
 #define SAMPLE_PERIOD_MS 100U
 #define COOLER_INITIAL_DUTY_PERCENT 25U
-#define HEATER_INITIAL_DUTY_PERCENT 100U
+#define ACQUISITION_TIMEOUT_TICKS (1000U / SAMPLE_PERIOD_MS)
 #define TELEMETRY_BAUD_RATE 9600U
 #define REFERENCE_MIN_MILLIC 34000U
 #define REFERENCE_MAX_MILLIC 37000U
@@ -28,13 +29,72 @@ static volatile uint32_t temperature_adc_timeout_count;
 static volatile uint32_t temperature_uart_error_count;
 static volatile uint32_t temperature_reference_millicelsius;
 static volatile bool speaker_sine_ready;
+static TemperatureController temperature_controller;
+static volatile TemperatureControlState temperature_control_state;
+static volatile uint32_t heater_duty_percent;
+static volatile uint32_t last_valid_sample_tick;
+static volatile bool control_watchdog_armed;
+static volatile bool control_watchdog_expired;
 
 /* SysTick es el único escritor. Cada tick corresponde a un periodo de muestreo. */
 static volatile uint32_t sample_tick;
 
 void SysTick_Handler(void) {
     ++sample_tick;
+    /* Cortar incluso si main esta detenido dentro de la salida bloqueante. */
+    if (control_watchdog_armed &&
+        sample_tick - last_valid_sample_tick >= ACQUISITION_TIMEOUT_TICKS) {
+        ActuatorsPWM_SetHeaterDuty(0);
+        heater_duty_percent = 0;
+        temperature_control_state = TEMPERATURE_CONTROL_FAULT_GAP;
+        control_watchdog_expired = true;
+        control_watchdog_armed = false;
+    }
     __SEV();
+}
+
+/* Estas funciones se ejecutan con interrupciones enmascaradas para impedir
+ * que main vuelva a energizar el calefactor despues del corte de SysTick. */
+static void apply_heater_duty(uint32_t duty) {
+    if (duty != heater_duty_percent) {
+        ActuatorsPWM_SetHeaterDuty(duty);
+        heater_duty_percent = duty;
+    }
+}
+
+static void trip_control(TemperatureControlState fault) {
+    TemperatureController_Trip(&temperature_controller, fault);
+    apply_heater_duty(0);
+    control_watchdog_armed = false;
+    temperature_control_state = temperature_controller.state;
+}
+
+static void synchronize_watchdog(void) {
+    if (control_watchdog_expired) {
+        trip_control(TEMPERATURE_CONTROL_FAULT_GAP);
+        control_watchdog_expired = false;
+    }
+}
+
+static void update_control(const TemperatureMeasurement *measurement,
+                           const TemperatureFilterResult *filtered,
+                           uint32_t elapsed_ticks) {
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    synchronize_watchdog();
+    if (measurement->millicelsius < -40000 || measurement->millicelsius > 125000) {
+        trip_control(TEMPERATURE_CONTROL_FAULT_SENSOR);
+    } else {
+        const uint32_t duty = TemperatureController_Update(&temperature_controller,
+            (float)filtered->filtered_millicelsius / 1000.0f,
+            (float)filtered->median_millicelsius / 1000.0f,
+            (float)elapsed_ticks * ((float)SAMPLE_PERIOD_MS / 1000.0f));
+        apply_heater_duty(duty);
+        last_valid_sample_tick = sample_tick;
+        control_watchdog_armed = temperature_controller.state == TEMPERATURE_CONTROL_RUNNING;
+        temperature_control_state = temperature_controller.state;
+    }
+    __set_PRIMASK(primask);
 }
 
 static uint32_t wait_for_sample(uint32_t last_tick) {
@@ -140,6 +200,13 @@ static void poll_reference(void) {
                 uint32_t reference;
                 if (!discard && parse_reference(line, length, &reference)) {
                     temperature_reference_millicelsius = reference;
+                    /* REF confirma recepcion; el rearme depende de la medicion. */
+                    const uint32_t primask = __get_PRIMASK();
+                    __disable_irq();
+                    synchronize_watchdog();
+                    TemperatureController_SetReference(&temperature_controller,
+                                                       (float)reference / 1000.0f);
+                    __set_PRIMASK(primask);
                     char reply[16];
                     const int count = snprintf(reply, sizeof reply, "REF=%lu\r\n",
                                                (unsigned long)reference);
@@ -191,20 +258,23 @@ static void report_sample(const TemperatureMeasurement *measurement,
         ++temperature_uart_error_count;
     }
 
-    printf("N=%lu ADC=%u V=%lu mV T=%s%ld.%03ld C\n",
+    printf("N=%lu ADC=%u V=%lu mV T=%s%ld.%03ld C tick=%lu REF_mC=%lu DUTY=%lu STATE=%u\n",
            (unsigned long)count,
            (unsigned int)measurement->raw_adc, (unsigned long)measurement->millivolts,
-           sign, degrees, fraction);
+           sign, degrees, fraction, (unsigned long)sample_tick,
+           (unsigned long)temperature_reference_millicelsius,
+           (unsigned long)heater_duty_percent, (unsigned int)temperature_control_state);
 }
 
 int main(void) {
     /* Redlib Semihost dirige stdout a la consola del depurador. */
     setvbuf(stdout, NULL, _IONBF, 0);
     SystemCoreClockUpdate();
-    speaker_sine_ready = SpeakerSine_Init();
     ActuatorsPWM_Init();
     ActuatorsPWM_SetCoolerDuty(COOLER_INITIAL_DUTY_PERCENT);
-    ActuatorsPWM_SetHeaterDuty(HEATER_INITIAL_DUTY_PERCENT);
+    TemperatureController_Init(&temperature_controller, &TEMPERATURE_CONTROLLER_DEFAULT_CONFIG);
+    temperature_control_state = temperature_controller.state;
+    speaker_sine_ready = SpeakerSine_Init();
     TemperatureSensor_Init();
     init_telemetry();
     SYSTICK_InternalInit(SAMPLE_PERIOD_MS);
@@ -214,17 +284,37 @@ int main(void) {
     TemperatureFilter filter;
     TemperatureFilter_Reset(&filter);
     uint32_t last_tick = 0;
+    uint32_t previous_sample_tick = 0;
     while (1) {
         TemperatureMeasurement measurement;
         last_tick = wait_for_sample(last_tick);
         poll_reference();
         if (read_temperature(&measurement)) {
+            const uint32_t current_tick = sample_tick;
+            if (current_tick - previous_sample_tick >= ACQUISITION_TIMEOUT_TICKS) {
+                TemperatureFilter_Reset(&filter);
+            }
             const TemperatureFilterResult filtered =
                 TemperatureFilter_Process(&filter, measurement.millicelsius);
+            update_control(&measurement, &filtered, current_tick - previous_sample_tick);
+            /* No reutilizar un tick que haya transcurrido durante RX o el ADC. */
+            last_tick = current_tick;
+            if (measurement.millicelsius < -40000 || measurement.millicelsius > 125000) {
+                TemperatureFilter_Reset(&filter);
+            }
+            previous_sample_tick = current_tick;
             report_sample(&measurement, &filtered);
         } else {
+            const uint32_t primask = __get_PRIMASK();
+            __disable_irq();
+            synchronize_watchdog();
+            trip_control(TEMPERATURE_CONTROL_FAULT_ADC);
+            __set_PRIMASK(primask);
             ++temperature_adc_timeout_count;
             TemperatureFilter_Reset(&filter);
+            last_tick = sample_tick;
+            printf("CONTROL FAULT=%u DUTY=0 tick=%lu\n",
+                   (unsigned int)temperature_control_state, (unsigned long)sample_tick);
         }
     }
 }
