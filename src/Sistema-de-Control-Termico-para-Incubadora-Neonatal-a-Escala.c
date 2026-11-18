@@ -277,10 +277,11 @@ static void report_sample(const TemperatureMeasurement *measurement,
     temperature_filtered_millicelsius = temperature;
     temperature_sample_count = count;
 
-    /* Temperatura filtrada en °C, conservando el protocolo de la webapp. */
-    char line[16];
-    const int length = snprintf(line, sizeof line, "%s%ld.%03ld\r\n",
-                                sign, degrees, fraction);
+    /* Conservar la linea de temperatura y agregar el duty aplicado al calefactor. */
+    char line[32];
+    const uint32_t duty = heater_duty_percent;
+    const int length = snprintf(line, sizeof line, "%s%ld.%03ld\r\nPWM=%lu\r\n",
+                                sign, degrees, fraction, (unsigned long)duty);
     if (length > 0 && (size_t)length < sizeof line) {
         send_uart(line, (uint32_t)length);
     } else {

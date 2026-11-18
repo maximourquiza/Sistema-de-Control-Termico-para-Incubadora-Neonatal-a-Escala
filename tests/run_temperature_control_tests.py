@@ -1,6 +1,7 @@
 """Run controller, integration, PWM, alarm and speaker tests on Cortex-M3.
 
-Requires Unicorn and the MCUXpresso toolchain. Optional argument: tools/bin path.
+Requires Unicorn and the MCUXpresso toolchain. Optional arguments: tools/bin path,
+followed by suite names to run (for example telemetry).
 """
 from pathlib import Path
 import subprocess
@@ -18,6 +19,7 @@ LIBRARY = ROOT.parent / "CMSISv2p00_LPC17xx"
 SUITES = {
     "controller": ["src/temperature_controller.c", "tests/temperature_controller_test.c"],
     "control_integration": ["src/temperature_controller.c", "tests/control_integration_test.c"],
+    "telemetry": ["src/temperature_controller.c", "tests/control_integration_test.c"],
     "actuators_pwm": ["src/actuators_pwm.c", "tests/actuators_pwm_test.c"],
     "temperature_alarm": ["src/temperature_controller.c", "tests/temperature_alarm_test.c"],
     "speaker_sine": ["tests/speaker_sine_test.c"],
@@ -27,6 +29,8 @@ SUITES = {
     "maintenance": ["src/temperature_controller.c", "tests/maintenance_test.c"],
     "maintenance_prototype": ["src/temperature_controller.c", "tests/maintenance_test.c"],
 }
+if len(sys.argv) > 2:
+    SUITES = {name: SUITES[name] for name in sys.argv[2:]}
 
 
 def run(command):

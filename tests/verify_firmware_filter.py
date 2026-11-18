@@ -93,16 +93,18 @@ def verify(filename):
                 emulator.hook_add(UC_HOOK_CODE, skip_printf, begin=address, end=address)
         measurement = 0x10003000
         emulator.mem_write(measurement, struct.pack('<H2xIi', 1004, 809, 31000))
-        for temperature, expected in [
+        for index, (temperature, expected) in enumerate([
             (31000, '31.000\r\n'), (-1234, '-1.234\r\n'), (0, '0.000\r\n'),
             (-2147483648, '-2147483.648\r\n'), (2147483647, '2147483.647\r\n'),
-        ]:
+        ]):
+            duty = [0, 15, 70, 100, 10][index]
+            emulator.mem_write(symbols['heater_duty_percent'], struct.pack('<I', duty))
             emulator.mem_write(result, struct.pack('<ii', temperature, temperature))
             before = len(packets)
             call('report_sample', measurement, result)
             assert len(packets) == before + 1, temperature
-            assert packets[-1] == expected, (temperature, packets[-1])
-            assert len(packets[-1]) < 16
+            assert packets[-1] == expected + f'PWM={duty}\r\n', (temperature, packets[-1])
+            assert len(packets[-1]) < 32
 
     print(json.dumps({'firmware': str(filename), 'filter': 'passed',
                       'report_sample': 'passed' if packets else 'inlined',

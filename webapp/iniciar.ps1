@@ -28,7 +28,7 @@ try {
     if ($chrome) { Start-Process -FilePath $chrome -ArgumentList 'http://localhost:8080' }
     else { Write-Host 'Abrí http://localhost:8080 en Chrome de escritorio.' }
     Write-Host 'Webapp: http://localhost:8080'
-    Write-Host 'Cerrá PuTTY antes de conectar al HC-05. Dejá esta consola abierta.'
+    Write-Host 'Servidor activo. Dejá esta consola abierta.'
     Read-Host 'Presioná Enter para detener el servidor' | Out-Null
 } finally {
     if (-not $server.HasExited) { Stop-Process -Id $server.Id }

@@ -52,6 +52,32 @@ test('apertura a 9600 8N1 y cancelación del selector', async () => {
   await assert.rejects(cancelled.connect(), { name: 'NotFoundError' });
   assert.equal(cancelled.connecting, false);
 });
+
+test('PWM: rango, formato y convivencia con la telemetría anterior', () => {
+  for (const value of [0, 15, 70, 100]) {
+    assert.deepEqual(parseLine(`PWM=${value}`), { type: 'pwm', value });
+  }
+  for (const invalid of ['PWM=-1', 'PWM=101', 'PWM=1.5', 'PWM=abc', 'PWM=', 'PWM=1000']) {
+    assert.equal(parseLine(invalid), null);
+  }
+  assert.deepEqual(parseLine('35.000'), { type: 'temperature', value: 35 });
+});
+
+test('PWM fragmentado entre mediciones y confirmaciones', async () => {
+  const { port, session } = await setup();
+  const duties = [];
+  const temperatures = [];
+  session.addEventListener('pwm', event => duties.push(event.detail));
+  session.addEventListener('temperature', event => temperatures.push(event.detail));
+  const confirmation = session.sendReference(36000);
+  port.receive('35.000\r\nPWM=7');
+  port.receive('0\r\nREF=36000\r\n35.100\nPWM=0\nPWM=101\n');
+  await confirmation;
+  await flush();
+  assert.deepEqual(duties, [70, 0]);
+  assert.deepEqual(temperatures, [35, 35.1]);
+  await session.disconnect();
+});
 test('puerto ocupado no deja una sesión abierta', async () => {
   const port = mockPort();
   port.open = async () => { throw new DOMException('Ocupado','NetworkError'); };

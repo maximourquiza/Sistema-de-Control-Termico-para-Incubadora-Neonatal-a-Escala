@@ -127,9 +127,33 @@ int run_control_integration_tests(void) {
     temperature_controller.integral_percent = 1.25f;
     temperature_sensor_invalid_count = 7;
     report_sample(&measurement, &filtered);
-    CHECK(strcmp(tx_text, "35.000\r\n") == 0);
-    CHECK(temperature_sample_count == 1);
+    CHECK(strcmp(tx_text, "35.000\r\nPWM=0\r\n") == 0);
+    tx_length = 0;
+    heater_duty_percent = 100;
+    report_sample(&measurement, &filtered);
+    CHECK(strcmp(tx_text, "35.000\r\nPWM=100\r\n") == 0);
+    CHECK(temperature_sample_count == 2);
     CHECK(strstr(debug_text, "I_mPct=1250 DROP=7") != 0);
     CHECK(strstr(debug_text, "BASE=40") != 0);
+    return 0;
+}
+
+int run_telemetry_tests(void) {
+    const TemperatureMeasurement measurement = {1055, 850, 35000};
+    const uint32_t duties[] = {0, 15, 70, 100, 10};
+    const int32_t minimum = -INT32_MAX - 1;
+    const int32_t temperatures[] = {35000, -500, 0, minimum, INT32_MAX};
+    const char *expected[] = {
+        "35.000\r\nPWM=0\r\n", "-0.500\r\nPWM=15\r\n", "0.000\r\nPWM=70\r\n",
+        "-2147483.648\r\nPWM=100\r\n", "2147483.647\r\nPWM=10\r\n"
+    };
+    for (unsigned int i = 0; i < sizeof duties / sizeof duties[0]; ++i) {
+        const TemperatureFilterResult filtered = {temperatures[i], temperatures[i]};
+        heater_duty_percent = duties[i];
+        tx_length = 0;
+        report_sample(&measurement, &filtered);
+        CHECK(strcmp(tx_text, expected[i]) == 0);
+        CHECK(temperature_sample_count == i + 1);
+    }
     return 0;
 }

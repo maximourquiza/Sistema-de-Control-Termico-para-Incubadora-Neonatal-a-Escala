@@ -46,9 +46,10 @@ export class SerialSession extends EventTarget {
             this.emit('reference', message.value);
             if (this.pending?.value === message.value) this.settle();
           } else if (message.type === 'rejected' && this.pending) {
-            this.settle(new Error('El chip rechazó la consigna (ERR REF).'));
+            this.settle(new Error('La placa rechazó la consigna.'));
           }
           if (message.type === 'temperature') this.emit('temperature', message.value);
+          if (message.type === 'pwm') this.emit('pwm', message.value);
         }
       }
     } catch (error) { failure = error; }
@@ -77,13 +78,13 @@ export class SerialSession extends EventTarget {
     if (!Number.isInteger(value) || value < 34000 || value > 37000) throw new Error('Consigna fuera de rango.');
     const acknowledgement = new Promise((resolve, reject) => {
       this.pending = { value, resolve, reject, timer: setTimeout(() => {
-        this.settle(new Error('Sin confirmación en 3 segundos. El chip podría haber recibido la consigna; no se reenvió automáticamente.'));
+        this.settle(new Error('Sin confirmación de la placa.'));
       }, this.timeoutMs) };
     });
     // Instalar el manejador antes de escribir, incluso si falla o se desconecta.
     acknowledgement.catch(() => {});
     try { await this.writer.write(new TextEncoder().encode(`${formatReference(value)}\r\n`)); }
-    catch { this.settle(new Error('No se pudo enviar la consigna. Revisá la conexión.')); }
+    catch { this.settle(new Error('No se pudo enviar la consigna.')); }
     return acknowledgement;
   }
 
@@ -94,7 +95,7 @@ export class SerialSession extends EventTarget {
     const reader = this.reader;
     const writer = this.writer;
     this.port = null;
-    this.settle(new Error('Conexión cerrada: envío cancelado.'));
+    this.settle(new Error('Envío cancelado por desconexión.'));
     this.closing = (async () => {
       try {
         await reader?.cancel().catch(() => {});
@@ -105,7 +106,7 @@ export class SerialSession extends EventTarget {
         }
         await port.close();
       } catch {
-        this.emit('cleanup-error', 'No se pudo cerrar completamente el puerto. Desconectá y reconectá el HC-05 antes de reintentar.');
+        this.emit('cleanup-error', 'No se pudo cerrar el puerto. Reconectá el HC-05.');
       } finally {
         this.reader = this.writer = this.readTask = null;
         this.closing = null;

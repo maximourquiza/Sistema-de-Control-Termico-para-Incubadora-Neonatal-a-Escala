@@ -11,6 +11,11 @@ export function formatReference(value) {
 }
 
 export function parseLine(line) {
+  const pwm = /^PWM=(\d{1,3})$/.exec(line);
+  if (pwm) {
+    const value = Number(pwm[1]);
+    return value <= 100 ? { type: 'pwm', value } : null;
+  }
   if (/^-?\d+\.\d{3}$/.test(line)) {
     const value = Number(line);
     if (Number.isFinite(value)) return { type: 'temperature', value };

@@ -30,4 +30,4 @@ server.on('error', error => {
     : `No se pudo iniciar el servidor: ${error.message}`);
   process.exitCode = 1;
 });
-server.listen(8080, '127.0.0.1', () => console.log('Webapp disponible en http://localhost:8080\nCerrá PuTTY. En Chrome, pulsá Conectar y elegí el HC-05 (actualmente COM5).\nCtrl+C para detener el servidor.'));
+server.listen(8080, '127.0.0.1', () => console.log('Webapp disponible en http://localhost:8080\nCtrl+C para detener.'));
