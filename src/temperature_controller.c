@@ -111,7 +111,7 @@ uint32_t TemperatureController_Update(TemperatureController *controller,
     }
     /* Ambas etapas deben confirmar calor real. La cola del IIR por si sola
      * no prolonga un pico cuya mediana ya ha vuelto al rango normal. */
-    if (filtered_c >= 40.0f && median_c >= 40.0f) {
+    if (filtered_c >= TEMPERATURE_BLOCK_THRESHOLD_C && median_c >= TEMPERATURE_BLOCK_THRESHOLD_C) {
         const uint32_t elapsed_ms = (uint32_t)(elapsed_s * 1000.0f + 0.5f);
         if (controller->overtemperature_ms < TEMPERATURE_CONTROL_OVERTEMP_CONFIRM_MS) {
             controller->overtemperature_ms += elapsed_ms;
@@ -124,7 +124,7 @@ uint32_t TemperatureController_Update(TemperatureController *controller,
         controller->overtemperature_ms = 0;
     }
 #else
-    if (filtered_c >= 40.0f || median_c >= 40.0f) {
+    if (filtered_c >= TEMPERATURE_BLOCK_THRESHOLD_C || median_c >= TEMPERATURE_BLOCK_THRESHOLD_C) {
         TemperatureController_Trip(controller, TEMPERATURE_CONTROL_FAULT_OVERTEMP);
         return 0;
     }
@@ -138,7 +138,8 @@ uint32_t TemperatureController_Update(TemperatureController *controller,
         const bool requested = controller->reference_pending;
         controller->reference_pending = false;
         const bool fault = controller->state >= TEMPERATURE_CONTROL_FAULT_ADC;
-        if (!requested || (fault && (filtered_c >= 38.0f || median_c >= 38.0f))) {
+        if (!requested || (fault && (filtered_c >= TEMPERATURE_BLOCK_REARM_C ||
+                                     median_c >= TEMPERATURE_BLOCK_REARM_C))) {
             return 0;
         }
         controller->state = TEMPERATURE_CONTROL_RUNNING;

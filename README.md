@@ -11,7 +11,7 @@
 
 Se desarrollará un **prototipo a escala de una incubadora neonatal con control automático de temperatura**, utilizando un microcontrolador **LPC1769**. El sistema medirá la temperatura interna mediante un sensor **TMP36** y la comparará con una **temperatura de referencia configurada desde una aplicación web en una PC**.
 
-A partir del error entre la temperatura medida y la de referencia, el microcontrolador regulará la potencia de una **resistencia calefactora de bajo voltaje** y la velocidad de un **ventilador (cooler)** mediante señales **PWM**. Además, incorporará una **alarma sonora generada por el DAC** y reproducida mediante una bocina de baja potencia cuando la temperatura supere los límites definidos para la demostración. La comunicación entre la placa y la interfaz será **bidireccional mediante UART y un módulo Bluetooth HC-05**, que enlaza el LPC1769 con la PC.
+A partir del error entre la temperatura medida y la de referencia, el microcontrolador regulará la potencia de una **serie de resistencias cerámicas en paralelo** y setea a un valor fijo un **ventilador (cooler)** mediante señales **PWM**. Además, incorporará una **alarma sonora generada por el DAC** y reproducida mediante una bocina de baja potencia cuando la temperatura supere los límites definidos para la demostración. La comunicación entre la placa y la interfaz será **bidireccional mediante UART y un módulo Bluetooth HC-05**, que enlaza el LPC1769 con la PC.
 
 ### Alcances del Proyecto 
 
@@ -21,7 +21,7 @@ A partir del error entre la temperatura medida y la de referencia, el microcontr
 - Permitir configurar la temperatura de referencia desde una **webapp** ejecutada en la PC.
 - Transmitir periódicamente la temperatura medida y el estado de los actuadores desde la placa hacia la PC por UART.
 - Enviar órdenes y una consigna de temperatura desde la PC hacia la placa por la misma conexión UART.
-- Regular el calefactor y el cooler mediante PWM, de acuerdo con el error de temperatura.
+- Regular el calefactor mediante PWM, de acuerdo con el error de temperatura, dejando el duty cycle del cooler fijo.
 - Generar una señal de alarma mediante el DAC cuando se detecte una temperatura fuera de los límites de prueba.
 - Visualizar la medición, la consigna, el estado de los actuadores y las alarmas en la interfaz.
 
@@ -44,7 +44,7 @@ A partir del error entre la temperatura medida y la de referencia, el microcontr
 |---|---|
 | **LPC1769** | Adquisición, procesamiento, control y comunicaciones. |
 | **TMP36** | Medición analógica de temperatura (sensibilidad nominal de 10 mV/°C). |
-| **Resistencia calefactora de bajo voltaje** | Actuador encargado de aumentar la temperatura de la maqueta. |
+| **Resistencias cerámicas en paralelo** | Actuador encargado de aumentar la temperatura de la maqueta. |
 | **Cooler PWM** | Circulación de aire y, si existe ventilación/intercambio térmico adecuado, asistencia al enfriamiento. |
 | **Transistores MOSFET** | Etapas de conmutación/potencia para las cargas, según el circuito definitivo. |
 | **Bocina de baja potencia** | Reproducción de la señal acústica generada mediante el DAC y una etapa de adaptación/amplificación. |
@@ -157,12 +157,60 @@ Las mediciones filtradas se transmiten por UART al HC-05. La salida por semihost
 | Parámetro | Especificación prevista |
 |---|---|
 | Lógica del LPC1769 | 3,3 V según las especificaciones de la placa y sus periféricos. |
-| Sensor TMP36 | Alimentación a definir según el modelo y el diseño de acondicionamiento. |
-| Resistencia calefactora | Baja tensión; valor nominal de tensión, potencia y corriente: **pendiente de selección**. |
-| Cooler | Tensión y corriente nominales: **pendientes de confirmar**. |
-| Bocina y amplificador | Baja potencia; tensión y consumo: **pendientes de definir**. |
-| Fuente de potencia | Externa, dimensionada para la suma de las cargas y sus corrientes máximas. |
-| Consumo total estimado / medido | **Pendiente de cálculo y medición experimental**. |
+| Sensor TMP36 | 3,3 V de la placa. |
+| Resistencias cerámicas | 4,7 ohm y 10 W, configuracion de ramas en paralelo con un consumo estimado de 46 W |
+| Cooler | Tensión y corriente nominales: 12 V 0,15 A. |
+| Bocina y amplificador | Baja potencia; tensión y consumo: 5 V de fuente con amplificacion x20, señal de salida del DAC no superior a 2,2 V. |
+| Fuente de potencia | Externas, una de 12 V y otra de 5 V. |
+
+### Cálculos y Dimensionamiento de componentes
+
+#### 1. Etapa de Calefacción (Banco de Resistencias Cerámicas)
+Para generar la carga térmica alimentada a $V_{CC} = 12\text{ V}$ sin superar la potencia nominal de cada resistor ($P_{\text{nom}} = 10\text{ W}$, $R = 4.7\,\Omega$), se implementó un arreglo con **6 resistencias cerámicas**:
+
+* **Configuración:** 3 ramas en paralelo, cada una compuesta por 2 resistencias en serie.
+* **Resistencia Equivalente ($R_{\text{eq}}$):**
+  $$R_{\text{rama}} = 4.7\,\Omega + 4.7\,\Omega = 9.4\,\Omega$$
+  $$R_{\text{eq}} = \frac{9.4\,\Omega}{3} \approx 3.13\,\Omega$$
+* **Corriente y Potencia Total:**
+  $$I_{\text{total}} = \frac{12\text{ V}}{3.13\,\Omega} \approx 3.83\text{ A}$$
+  $$P_{\text{total}} = V_{CC} \cdot I_{\text{total}} = 12\text{ V} \cdot 3.83\text{ A} \approx 46\text{ W}$$
+* **Verificación de Disipación por Resistor:**
+  Cada rama conduce $I_{\text{rama}} = 12\text{ V} / 9.4\,\Omega \approx 1.28\text{ A}$, por lo que la potencia máxima por componente (al $100\%$ de *duty cycle*) es:
+  $$P_{R} = I_{\text{rama}}^2 \cdot R = (1.28\text{ A})^2 \cdot 4.7\,\Omega \approx 7.7\text{ W} < 10\text{ W}$$
+
+---
+
+#### 2. Etapa de Potencia y Driver de Conmutación (PWM)
+Dado que los pines GPIO del **LPC1769** operan a $3.3\text{ V}$ y requieren adaptación de nivel para conmutar la carga de $12\text{ V}$, se utiliza una etapa con transistor NPN **2N2222** atacando la compuerta de un MOSFET canal N **IRL2910**:
+
+* **Resistencia de Base ($R_B$ del 2N2222):**
+  Para asegurar saturación con $V_{GPIO} = 3.3\text{ V}$, $V_{BE(\text{sat})} \approx 0.7\text{ V}$ e $I_B \approx 2.6\text{ mA}$:
+  $$R_B = \frac{3.3\text{ V} - 0.7\text{ V}}{2.6\text{ mA}} = 1\text{ k}\Omega$$
+* **Resistencia de Pull-Up de Colector / Gate ($R_C$ del 2N2222):**
+  Con alimentación de disparo de $5\text{ V}$, se utiliza $R_C = 4.7\text{ k}\Omega$, limitando la corriente de colector a $I_C = 5\text{ V} / 4.7\text{ k}\Omega \approx 1.06\text{ mA}$.
+* **Disipación en el MOSFET (IRL2910):**
+  Con $R_{DS(\text{on})} \approx 0.026\,\Omega$ e $I_D \approx 3.83\text{ A}$:
+  $$P_{\text{MOS}} = I_D^2 \cdot R_{DS(\text{on})} = (3.83\text{ A})^2 \cdot 0.026\,\Omega \approx 0.38\text{ W}$$
+
+---
+
+#### 3. Etapa de Ventilación (Cooler DC 12 V)
+* **Carga:** Cooler brushless de $12\text{ V}$ operando a $\approx 0.15\text{ A}$.
+* **Conmutación:** Driver idéntico (2N2222 + IRL2910) comandado por canal PWM independiente en rango ultrasónico ($20\text{ kHz} - 25\text{ kHz}$) para evitar ruido audible del bobinado.
+
+---
+
+#### 4. Sensado de Temperatura (TMP36 → ADC LPC1769)
+* **Filtrado de Señal:** Capacitor cerámico de desacople de $100\text{ nF}$ (`104`) conectado entre $V_{\text{out}}$ y GND para atenuar el ruido de alta frecuencia en la lectura analógica.
+
+---
+
+#### 5. Etapa de Alarma Sonora (DAC → LM386)
+* **Excitación:** Salida analógica `DAC` (`P0.26`) configurada mediante **GPDMA** para generar una senoidal de $1\text{ kHz}$.
+* **Acondicionamiento y Amplificación:**
+  * Capacitor de acople de entrada de $1\,\mu\text{F}$ para eliminar la componente continua ($V_{DC} \approx 1.65\text{ V}$) del DAC antes de ingresar al amplificador **LM386** (ganancia interna fijada en $G = 20$).
+  * Parlante de $8\,\Omega$ / $0.25\text{ W}$ acoplado a la salida mediante capacitor electrolítico de $470\,\mu\text{F}$ y red Zobel ($10\,\Omega$ + $47\text{ nF}$) para estabilidad.
 
 ### Microcontrolador y Herramientas
 
@@ -178,15 +226,14 @@ Las mediciones filtradas se transmiten por UART al HC-05. La salida por semihost
 
 ### Interfaz de Usuario (Webapp)
 
-La webapp tendrá, como mínimo, los siguientes elementos:
+La webapp cuenta con los siguientes elementos:
 
 - Visualización de **temperatura actual**, **temperatura de referencia** y **estado de conexión**.
 - Entrada para elegir y enviar una nueva consigna.
-- Indicadores del porcentaje PWM aplicado al calefactor y al cooler.
-- Aviso visible ante una alarma o falla del sensor.
+- Indicador del porcentaje PWM aplicado al calefactor.
 - Controles para iniciar/detener la regulación y solicitar el estado actual.
 
-**Conexión:** primero se empareja el **HC-05 por Bluetooth con Windows**. Luego, desde la webapp servida en `localhost` o HTTPS, se selecciona su conexión serie mediante la **Web Serial API en Chrome de escritorio**. Se utiliza el enlace Bluetooth serie del HC-05 para recibir las mediciones y enviar las consignas. El puerto debe estar libre de otras aplicaciones, como PuTTY, al abrirlo desde la webapp. [Referencia de Web Serial sobre Bluetooth Classic y SPP](https://developer.chrome.com/blog/serial-over-bluetooth/).
+**Conexión:** primero se empareja el **HC-05 por Bluetooth con Windows**. Luego, desde la webapp servida en `localhost` o HTTPS, se selecciona su conexión serie mediante la **Web Serial API en Chrome de escritorio**. Se utiliza el enlace Bluetooth serie del HC-05 para recibir las mediciones y enviar las consignas.
 
 ---
 
@@ -195,7 +242,7 @@ La webapp tendrá, como mínimo, los siguientes elementos:
 El desarrollo se dividirá en etapas para comprobar cada subsistema antes de integrarlo:
 
 1. **Etapa 1 — Validación inicial:** configurar el reloj del LPC1769, GPIO, temporizadores y entorno de depuración; verificar el funcionamiento básico de la placa.
-2. **Etapa 2 — Sensor y adquisición:** conectar el TMP36, validar niveles de tensión, calibrar la lectura del ADC y contrastar mediciones con un termómetro de referencia.
+2. **Etapa 2 — Sensor y adquisición:** conectar el TMP36, validar niveles de tensión, calibrar la lectura del ADC.
 3. **Etapa 3 — Comunicación e interfaz:** establecer la comunicación bidireccional UART–HC-05–Bluetooth, implementar el protocolo documentado en la sección 7 y conectar la webapp.
 4. **Etapa 4 — Actuadores:** implementar y medir las salidas PWM, integrar los MOSFET y verificar la activación del calefactor y el cooler de forma independiente.
 5. **Etapa 5 — Alarmas y control:** generar la señal del DAC, implementar las condiciones de alarma y cerrar el lazo térmico con una estrategia de control ajustable.
@@ -217,19 +264,18 @@ Los ensayos toman como referencia el firmware actual, con `TEMPERATURE_CONTROL_P
 | **Arranque** | Mantener las resistencias apagadas hasta recibir una consigna válida y disponer de una medición válida. El cooler arranca al **15 %**, valor fijo configurable en el firmware actual. |
 | **Control de calefacción** | Regular únicamente el duty de las resistencias entre **0 y 100 %**. Mantener fijo el duty del cooler durante la regulación. Comprobar que los comandos **0 %** y **100 %** correspondan a apagado y encendido continuo, respectivamente. |
 | **Precalentamiento** | Aplicar **100 %** de calefacción cuando la consigna supera en **2 °C o más** la mayor de las temperaturas mediana y filtrada. Pasar a regulación cuando esa diferencia baja a **1 °C o menos**. |
-| **Regulación PI/PID** | Usar la temperatura filtrada y el tiempo transcurrido real. La configuración actual es **Kp = 60 %/°C**, **Ki = 0,20 %/(°C·s)** y **Kd = 0**, con potencia base de mantenimiento de **30 %**. Comprobar la saturación de salida y la protección contra acumulación de la integral. Las ganancias continúan sujetas a ajuste experimental. |
+| **Regulación PI/PID** | Usar la temperatura filtrada y el tiempo transcurrido real. La configuración actual es **Kp = 60 %/°C**, **Ki = 0,20 %/(°C·s)** y **Kd = 0**, con potencia base de mantenimiento de **30 %**. Comprobar la saturación de salida y la protección contra acumulación de la integral. |
 | **PWM del cooler** | Generar una señal con período de **45 µs**, aproximadamente **22,22 kHz**, y comprobar distintos porcentajes de mando con el osciloscopio. |
 | **PWM de las resistencias** | Generar una señal con período de **1 s**, equivalente a **1 Hz**, y comprobar distintos porcentajes de mando con el osciloscopio. |
 | **Alarma sonora** | Activar el tono de **1 kHz** mediante DAC y DMA cuando la temperatura mediana o filtrada alcance **40 °C**. Silenciarlo cuando ambas bajen a **39,5 °C o menos**. Las lecturas inválidas conservan el estado previo de la alarma. |
 | **Sobretemperatura confirmada** | Apagar y enclavar la calefacción cuando **ambas temperaturas, mediana y filtrada, permanezcan en 40 °C o más durante 2 s**. Para rearmar, recibir una nueva consigna válida con ambas temperaturas por debajo de **38 °C**. La activación del sonido se evalúa independientemente de este enclavamiento. |
-| **Fallos transitorios de adquisición** | Apagar la calefacción durante un timeout del ADC o una lectura inválida. Cortar también si transcurre **1 s sin medición válida** durante la regulación. En modo prototipo, recuperar automáticamente con una nueva muestra válida y un intervalo de actualización aceptable, conservando la consigna. El corte temporal depende de la ejecución de SysTick. |
 | **Interfaz de usuario** | Mostrar la temperatura recibida y la consigna confirmada por el chip, y permitir enviar nuevas consignas dentro del rango admitido. Tras una desconexión, requerir reconexión manual y distinguir la confirmación histórica del estado actual de la placa. |
 
 #### Validación térmica del lazo
 
 Para completar la validación, registrar tiempo, temperatura filtrada, consigna y duty de las resistencias durante ensayos con consignas de **34, 36 y 37 °C**, incluyendo una reducción de consigna. Mantener fijo el cooler y anotar su porcentaje en cada ensayo. Los objetivos iniciales acordados son una banda estacionaria de **±0,5 °C** alrededor de la consigna y un sobreimpulso **inferior a 1 °C**, pendientes de comprobar y ajustar experimentalmente.
 
-El ensayo previo con cooler al **25 %** y resistencias al **100 %** alcanzó aproximadamente **40–41 °C**, según el registro del montaje. Ese ensayo caracteriza el calentamiento a potencia máxima y debe complementarse con pruebas en lazo cerrado para evaluar el seguimiento de consigna.
+El ensayo previo con cooler al **25 %** y resistencias al **100 %** alcanzó aproximadamente **40–41 °C**, según el registro del montaje. Al evaluar el fun
 
 ### Mediciones de las Señales PWM
 
@@ -277,4 +323,4 @@ La estructura actual del proyecto reúne el firmware, la webapp, las pruebas y l
 
 El firmware utiliza la biblioteca `CMSISv2p00_LPC17xx`, ubicada en un proyecto hermano dentro del workspace de MCUXpresso. La carpeta `src/` contiene tanto las implementaciones como sus cabeceras.
 
-Las carpetas de compilación `Debug/` y `Release/`, junto con los archivos compilados y temporales, están excluidas mediante `.gitignore`. `Release/` se generará al utilizar esa configuración de compilación.
+Las carpetas de compilación `Debug/` y `Release/`, junto con los archivos compilados y temporales, están excluidas mediante `.gitignore`.

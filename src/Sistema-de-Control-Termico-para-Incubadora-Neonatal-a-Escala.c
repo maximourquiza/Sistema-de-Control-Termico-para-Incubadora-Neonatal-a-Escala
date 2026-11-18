@@ -17,8 +17,6 @@
 #define REFERENCE_MAX_MILLIC 37000U
 #define REFERENCE_LINE_LENGTH 6U  /* Hasta dos enteros y tres decimales: 36.500. */
 #define UART_RX_BYTES_PER_POLL 16U
-#define TEMPERATURE_ALARM_ON_MILLIC 40000
-#define TEMPERATURE_ALARM_OFF_MILLIC 39500
 
 /* Mediciones y errores disponibles en el depurador. */
 static volatile uint16_t temperature_adc;

@@ -28,6 +28,9 @@ SUITES = {
     "preheating_prototype": ["src/temperature_controller.c", "tests/preheating_test.c"],
     "maintenance": ["src/temperature_controller.c", "tests/maintenance_test.c"],
     "maintenance_prototype": ["src/temperature_controller.c", "tests/maintenance_test.c"],
+    "test_profile_normal": ["src/temperature_controller.c", "tests/test_profile_test.c"],
+    "test_profile_speaker": ["src/temperature_controller.c", "tests/test_profile_test.c"],
+    "test_profile_block": ["src/temperature_controller.c", "tests/test_profile_test.c"],
 }
 if len(sys.argv) > 2:
     SUITES = {name: SUITES[name] for name in sys.argv[2:]}
@@ -40,16 +43,20 @@ def run(command):
 with tempfile.TemporaryDirectory(prefix="temperature-control-") as directory:
     target = Path(directory)
     for suite, sources in SUITES.items():
-        prototype_mode = 1 if suite == "prototype_control" or suite.endswith("_prototype") else 0
+        profile_suite = suite.startswith("test_profile_")
+        test_profile = {"test_profile_normal": 0, "test_profile_speaker": 1,
+                        "test_profile_block": 2}.get(suite, 0)
+        prototype_mode = 1 if suite == "prototype_control" or suite.endswith("_prototype") or profile_suite else 0
         for optimization in ("-O0", "-Os"):
             executable = target / "test.elf"
             binary = target / "test.bin"
-            entry_name = f"run_{suite.removesuffix('_prototype')}_tests"
+            entry_name = "run_test_profile_tests" if profile_suite else f"run_{suite.removesuffix('_prototype')}_tests"
             run([
                 TOOLS / "arm-none-eabi-gcc.exe", "-mcpu=cortex-m3", "-mthumb",
                 "-std=c99", "-ffreestanding", "-fno-builtin", "-nostdlib", optimization,
                 "-ffunction-sections", "-fdata-sections", "-D__REDLIB__", "-nostdinc",
                 f"-DTEMPERATURE_CONTROL_PROTOTYPE_MODE={prototype_mode}",
+                f"-DTEMPERATURE_TEST_PROFILE={test_profile}",
                 "-isystem", TOOLS.parent / "redlib/include",
                 "-isystem", TOOLS.parent / "features/include",
                 "-Wall", "-Wextra", "-Werror", "-I", ROOT / "src",

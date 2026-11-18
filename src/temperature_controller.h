@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "temperature_test_config.h"
 
 /* Modo de ensayo: solo la sobretemperatura confirmada enclava el control.
  * Definir a 0 para recuperar los bloqueos inmediatos por otras fallas. */
